@@ -1,0 +1,23 @@
+# Entornos virtuales
+.venv/
+venv/
+ENV/
+
+# Caché de Python y artefactos de ejecución
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Artefactos de empaquetado y compilación
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Configuración de editores e IDEs
+.vscode/
+.idea/
+*.swp
