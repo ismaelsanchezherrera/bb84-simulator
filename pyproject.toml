@@ -32,3 +32,6 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[project.scripts]
+bb84-sim = "bb84_simulator.__main__:main"
