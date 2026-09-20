@@ -4,56 +4,26 @@ Simulador BB84 (Distribución de Claves Cuánticas).
 Módulo principal para la simulación del protocolo QKD BB84, incluyendo
 modelado de canales cuánticos con ruido, detección de intromisión (Eve),
 reconciliación de información por Cascade y amplificación de privacidad.
-
 """
 
 from __future__ import annotations
 
-from bb84_simulator.models import DetectionResult, SecurityReport
-from bb84_simulator.validation import (
-    validar_entero_positivo,
-    validar_epsilon as _validar_epsilon,
-    validar_no_negativo as _validar_no_negativo,
-    validar_probabilidad as _validar_prob01,
-)
-from bb84_simulator.attacks import (
-    CollectiveAttack,
-    EveStrategy,
-    InterceptResendEve,
-    PassiveEve,
-    QuantumPacket,
-    RandomEve,
-)
-from bb84_simulator.cascade import error_correction_cascade
-from bb84_simulator.channels import (
-    ChannelModel,
-    DepolarizingChannel,
-    FiberChannel,
-    FreeSpaceChannel,
-)
-from bb84_simulator.classical import ClassicalLayer
-from bb84_simulator.entropy import EntropySource
-from bb84_simulator.quantum import Alice, Bob, QuantumLayer
-from bb84_simulator.security import (
-    UMBRAL_QBER_SEGURIDAD,
-    BitErrorEstimate,
-    PhaseErrorEstimate,
-    SecurityLayer,
-    SecurityParameters,
-    cota_serfling_superior,
-    entropia_binaria,
-)
-
 import math
-import os
-import secrets
-from abc import ABC, abstractmethod
-from collections import deque
-from dataclasses import dataclass
-from numbers import Real
 from typing import Any, ClassVar
 
-import numpy as np 
+import numpy as np
+
+from bb84_simulator.attacks import EveStrategy, InterceptResendEve
+from bb84_simulator.channels import ChannelModel, FiberChannel
+from bb84_simulator.classical import ClassicalLayer
+from bb84_simulator.entropy import EntropySource
+from bb84_simulator.models import SecurityReport
+from bb84_simulator.quantum import Alice, Bob, QuantumLayer
+from bb84_simulator.security import (
+    SecurityLayer,
+    SecurityParameters,
+    UMBRAL_QBER_SEGURIDAD,
+)
 
 # ============================================================================
 # 1. Simulador Principal (Facade de Orquestación)

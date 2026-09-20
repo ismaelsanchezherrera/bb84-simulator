@@ -3,13 +3,17 @@ Punto de entrada CLI para el Simulador BB84.
 """
 
 import sys
-from bb84_simulator.simulator import (
+from bb84_simulator import (
     BB84Simulator,
-    DepolarizingChannel,
     EntropySource,
+    SecurityParameters,
+    FiberChannel,
+    DepolarizingChannel,
     FreeSpaceChannel,
     InterceptResendEve,
-    SecurityParameters,
+    PassiveEve,
+    RandomEve,
+    CollectiveAttack,
     run_statistical_tests,
 )
 
