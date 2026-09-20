@@ -7,7 +7,7 @@ name = "bb84-simulator"
 version = "5.4.1"
 description = "Simulador del protocolo de distribución de claves cuánticas (BB84)"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [
     {name = "Ismael Sánchez-Herrera Cubero"}

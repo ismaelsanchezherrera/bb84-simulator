@@ -10,7 +10,7 @@ def run_example():
     params = SecurityParameters()
     sim = BB84Simulator(entropy, params)
 
-    resultado = sim.run(n_qubits=100_000, distancia_km=10.0)
+    resultado = sim.run(n_qubits=300_000, distancia_km=10.0)
     print(f"Simulación completada con estado: {'ABORTADO' if resultado.abortado else 'EXITOSO'}")
     print(f"Clave final generada: {resultado.longitud_clave_final} bits")
 
