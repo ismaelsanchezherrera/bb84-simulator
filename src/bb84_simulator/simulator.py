@@ -9,6 +9,15 @@ reconciliación de información por Cascade y amplificación de privacidad.
 
 from __future__ import annotations
 
+from bb84_simulator.entropy import EntropySource
+from bb84_simulator.models import DetectionResult, SecurityReport
+from bb84_simulator.validation import (
+    validar_entero_positivo,
+    validar_epsilon as _validar_epsilon,
+    validar_no_negativo as _validar_no_negativo,
+    validar_probabilidad as _validar_prob01,
+)
+
 import math
 import os
 import secrets
@@ -26,61 +35,12 @@ import numpy as np
 
 UMBRAL_QBER_SEGURIDAD = 0.11
 
-
-def _validar_prob01(nombre: str, valor: Any) -> None:
-    """Valida que `valor` sea un real en [0, 1] (probabilidad o
-    eficiencia de detector cerrada, incluyendo los extremos). Se
-    reutiliza en SecurityParameters y en todos los ChannelModel
-    concretos para no duplicar el mismo chequeo en cada clase.
-
-    No hace falta comprobar isfinite() aparte: al estar acotado por
-    AMBOS lados con una comparación encadenada, NaN e inf ya quedan
-    fuera por cortocircuito (`0.0 <= nan` y `inf <= 1.0` son ambas
-    False), a diferencia de _validar_no_negativo más abajo."""
-    if isinstance(valor, bool) or not isinstance(valor, Real) or not 0.0 <= valor <= 1.0:
-        raise ValueError(f"{nombre} debe estar en el intervalo [0, 1].")
-
-
-def _validar_epsilon(nombre: str, valor: Any) -> None:
-    """Valida que `valor` sea un real en (0, 1), abierto en ambos
-    extremos: un epsilon de seguridad de exactamente 0 (confianza
-    absoluta) o 1 (ninguna confianza) no tiene sentido en el marco
-    composable de estos parámetros. Igual que _validar_prob01, al estar
-    acotado por ambos lados no necesita un isfinite() aparte."""
-    if isinstance(valor, bool) or not isinstance(valor, Real) or not 0.0 < valor < 1.0:
-        raise ValueError(f"{nombre} debe estar en el intervalo (0, 1).")
-
-
-def _validar_no_negativo(nombre: str, valor: Any) -> None:
-    """Valida que `valor` sea un real FINITO >= 0 (distancias en km,
-    atenuaciones en dB/km o dB -- nunca negativas).
-
-    v5.4.1: a diferencia de _validar_prob01/_validar_epsilon, este
-    chequeo solo está acotado por UN lado (`valor < 0.0`), y NaN no
-    cumple ninguna comparación ordinaria -- ni siquiera `nan < 0.0`,
-    que da False --, así que un distancia_km=nan se colaba como
-    "válido". +inf tampoco cumple `< 0.0` y se colaba igual, pese a no
-    tener sentido físico como distancia o atenuación. Se exige
-    isfinite() explícitamente en vez de fiarse solo de la cota
-    inferior."""
-    if (
-        isinstance(valor, bool)
-        or not isinstance(valor, Real)
-        or not math.isfinite(valor)
-        or valor < 0.0
-    ):
-        raise ValueError(f"{nombre} debe ser un real finito >= 0.")
-
-
 @dataclass(frozen=True)
 class SecurityParameters:
     """
     Parámetros de seguridad unificados según el marco composable moderno.
 
-    En la versión recibida, `epsilon_auth` y `epsilon_ec` se declaraban pero no se
-    leían en ningún cálculo (`tag_length` se usaba directamente, sin
-    relación con `epsilon_auth`). Ahora `tag_length` es opcional: si no
-    se fija explícitamente, se DERIVA de `epsilon_auth` mediante
+    `tag_length` es opcional: si no se fija explícitamente, se DERIVA de `epsilon_auth` mediante
     `tag_length_efectivo`, de modo que ambos queden siempre consistentes
     (ver `ClassicalLayer.key_confirmation`).
 
@@ -102,8 +62,7 @@ class SecurityParameters:
         """v5.4: sin esta validación, p.ej. epsilon_pa=2 se aceptaba y
         volvía negativo (por tanto indebidamente favorable) el término
         2*log2(1/epsilon_pa) de calculate_lhl_length -- un fallo que
-        infla la longitud de clave declarada segura, no un simple
-        capricho de "entrada rara". Los cuatro epsilons son términos de
+        infla la longitud de clave declarada segura. Los cuatro epsilons son términos de
         confianza y deben estar en (0, 1) abierto; fec_efficiency es un
         factor multiplicativo sobre una fuga real y debe ser >= 1;
         tag_length, si se fija a mano, sustituye por completo la
@@ -159,12 +118,12 @@ class PhaseErrorEstimate:
     realmente en la prueba de seguridad de Shor & Preskill (2000) vía
     reducción a un código CSS.
 
-    LIMITACIÓN DOCUMENTADA (ya presente en la versión recibida, aquí explicitada): aquí
+    LIMITACIÓN DOCUMENTADA: aquí
     e_ph se toma igual a la cota de Serfling del error de BIT
     (supuesto de canal simétrico/depolarizante). Para un adversario
     general e_ph podría estimarse de forma independiente; se mantiene
     esta clase separada de BitErrorEstimate precisamente para que ese
-    cambio, el día de mañana, no obligue a tocar el resto del pipeline.
+    cambio, no obligue a tocar el resto del pipeline.
     """
     value: float
     supuesto: str = "e_ph := cota_serfling(qber_bit); canal simétrico, no derivado de forma independiente"
@@ -235,191 +194,7 @@ def cota_serfling_superior(
 
 
 # ============================================================================
-# 1. Fuente de Entropía
-# ============================================================================
-
-class EntropySource:
-    """
-    Capa de abstracción para la aleatoriedad (PRNG / CSPRNG).
-
-    Nota de diseño: no TODA la aleatoriedad del protocolo necesita ser
-    criptográfica. La elección de bit/base de Alice y Bob sí (termina,
-    parcialmente, en la clave secreta). Las semillas PÚBLICAS de Cascade
-    y de la matriz de Toeplitz de amplificación de privacidad, en
-    cambio, no necesitan ser secretas por el Leftover Hash Lemma: solo
-    necesitan elegirse con independencia de la información de Eve. Por
-    eso la expansión semilla->estructura se hace siempre con
-    `numpy.random.default_rng(semilla)` (determinista, público,
-    reproducible por ambas partes), mientras que la semilla en sí puede
-    generarse con este EntropySource en cualquiera de los dos modos.
-    Ver `ClassicalLayer.error_correction_cascade` y
-    `privacy_amplification_toeplitz`.
-    """
-
-    def __init__(self, mode: str = "simulation", seed: int | None = None):
-        mode = mode.lower()
-        if mode not in {"simulation", "crypto"}:
-            raise ValueError("mode debe ser 'simulation' o 'crypto'.")
-
-        self.mode = mode
-        self.seed = seed
-
-        if mode == "simulation":
-            self._rng = np.random.default_rng(seed)
-            self._crypto = None
-        else:
-            self._rng = None
-            self._crypto = secrets.SystemRandom()
-
-    @classmethod
-    def simulation(cls, seed: int | None = None) -> EntropySource:
-        return cls("simulation", seed)
-
-    @classmethod
-    def crypto(cls) -> EntropySource:
-        return cls("crypto")
-
-    @staticmethod
-    def _bits_criptograficos(n: int) -> np.ndarray:
-        """n bits uniformes de os.urandom, vectorizado con unpackbits.
-        Mismo CSPRNG del SO que secrets.SystemRandom, pero sin el coste
-        de un bucle Python por bit."""
-        n_bytes = (n + 7) // 8
-        crudo = np.frombuffer(os.urandom(n_bytes), dtype=np.uint8)
-        return np.unpackbits(crudo)[:n].astype(np.int64)
-
-    @staticmethod
-    def _uniforme01_criptografico(n: int) -> np.ndarray:
-        """n floats U[0,1) a partir de enteros de 32 bits de os.urandom."""
-        crudo = np.frombuffer(os.urandom(n * 4), dtype=np.uint32)
-        return crudo.astype(np.float64) / np.float64(2**32)
-
-    def integers(self, low: int, high: int | None = None, size=None):
-        if self.mode == "simulation":
-            return self._rng.integers(low, high, size=size)
-
-        if high is None:
-            high = low
-            low = 0
-
-        if size is None:
-            return self._crypto.randrange(low, high)
-
-        n = int(np.prod(size)) if isinstance(size, tuple) else int(size)
-
-        if low == 0 and high == 2:
-            # Camino rápido, vectorizado: es el caso dominante (bits de
-            # Alice/Bob, y de hecho el único que este simulador ejercita
-            # a escala de miles/millones de elementos).
-            values = self._bits_criptograficos(n)
-        else:
-            values = np.array([self._crypto.randrange(low, high) for _ in range(n)])
-
-        return values.reshape(size) if isinstance(size, tuple) else values.astype(np.int64)
-
-    def random(self, size=None):
-        if self.mode == "simulation":
-            return self._rng.random(size=size)
-
-        if size is None:
-            return self._crypto.random()
-
-        n = int(np.prod(size)) if isinstance(size, tuple) else int(size)
-        values = self._uniforme01_criptografico(n)
-        return values.reshape(size) if isinstance(size, tuple) else values
-
-    def permutation(self, n: int) -> np.ndarray:
-        if self.mode == "simulation":
-            return self._rng.permutation(n)
-
-        values = list(range(n))
-        self._crypto.shuffle(values)
-        return np.asarray(values, dtype=np.int64)
-
-    def choice(self, a, size=None, replace=True):
-        """
-        v5.4: la rama crypto no soportaba `size` como tupla -- fallaba
-        con TypeError en la comparación `size > len(values)` en cuanto
-        `size` no era un entero (p.ej. size=(1, 1), o cualquier forma
-        multidimensional). También se generaliza `a` para aceptar un
-        entero (elegir de range(a)), igual que np.random.Generator.choice.
-
-        El muestreo CON reemplazo sigue siendo una llamada a
-        self._crypto.choice() por elemento (que resuelve internamente
-        con _randbelow(), es decir con rechazo, no con el patrón
-        floor(random()*n) de random.choices()): es la opción más
-        cuidadosa para muestreo uniforme criptográfico, aunque
-        random.choices() habría evitado el bucle Python.
-        """
-        if self.mode == "simulation":
-            return self._rng.choice(a, size=size, replace=replace)
-
-        values = list(range(a)) if isinstance(a, (int, np.integer)) else list(a)
-
-        if size is None:
-            return self._crypto.choice(values)
-
-        shape = (size,) if isinstance(size, (int, np.integer)) else tuple(size)
-        if not all(isinstance(d, (int, np.integer)) and d >= 0 for d in shape):
-            raise ValueError("size debe contener enteros no negativos.")
-
-        n = int(np.prod(shape)) if shape else 1
-
-        if not replace and n > len(values):
-            raise ValueError("No se pueden elegir tantos elementos sin reemplazo.")
-
-        if replace:
-            selected = [self._crypto.choice(values) for _ in range(n)]
-        else:
-            selected = self._crypto.sample(values, n)
-
-        return np.asarray(selected).reshape(shape)
-
-    def random_seed_int(self, upper: int = 2**63 - 1) -> int:
-        if self.mode == "simulation":
-            return int(self._rng.integers(0, upper))
-        return self._crypto.randrange(0, upper)
-
-    def poisson(self, lam) -> np.ndarray:
-        """
-        Muestrea Poisson(lam), donde `lam` puede ser un array (una
-        intensidad distinta por pulso, como en una fuente WCP con
-        varias intensidades señuelo). Necesario para
-        decoy_wcp.AliceWCP.
-
-        Modo simulation: delega en numpy (algoritmo PTRS, eficiente
-        para cualquier lam).
-
-        Modo crypto: algoritmo de Knuth (cuenta cuántos uniformes caben
-        antes de que su producto caiga por debajo de e^-lam),
-        vectorizado por elemento con os.urandom. Coste esperado
-        O(lam+1) por elemento -- perfectamente adecuado para las
-        intensidades de decoy-state (mu <= ~1 típicamente), no
-        pensado para lam grande.
-        """
-        lam_arr = np.atleast_1d(np.asarray(lam, dtype=np.float64))
-        escalar = np.ndim(lam) == 0
-
-        if self.mode == "simulation":
-            resultado = self._rng.poisson(lam_arr)
-        else:
-            n = lam_arr.shape[0]
-            L = np.exp(-lam_arr)
-            k = np.zeros(n, dtype=np.int64)
-            p = np.ones(n, dtype=np.float64)
-            activos = lam_arr > 1e-15  # Poisson(0) = delta en 0, no hace falta muestrear
-            while np.any(activos):
-                idx = np.flatnonzero(activos)
-                k[idx] += 1
-                p[idx] *= self._uniforme01_criptografico(len(idx))
-                activos[idx] = p[idx] > L[idx]
-            resultado = k - 1
-
-        return int(resultado[0]) if escalar else resultado.astype(np.int64)
-
-
-# ============================================================================
-# 2. Interfaces de Entidades y Ataques (Extensibilidad)
+# 1. Interfaces de Entidades y Ataques (Extensibilidad)
 # ============================================================================
 
 @dataclass(frozen=True)
@@ -435,23 +210,6 @@ class QuantumPacket:
     """
     bits: np.ndarray
     bases: np.ndarray
-
-
-@dataclass(frozen=True)
-class DetectionResult:
-    bits_alice: np.ndarray
-    bases_alice: np.ndarray
-    bits_bob: np.ndarray
-    bases_bob: np.ndarray
-    eta_fibra: float
-    eta_detector: float
-    eta_total: float
-    n_enviados: int
-    n_clicks: int
-    n_fotones_detectados: int
-    n_dark_counts: int
-    n_double_clicks: int
-
 
 class EveStrategy(ABC):
     """Interfaz abstracta para estrategias de ataque de Eve."""
@@ -562,7 +320,7 @@ class ChannelModel(ABC):
     """Interfaz abstracta para el canal físico cuántico."""
 
     @abstractmethod
-    def transmit(self, packet: QuantumPacket, bob: Bob) -> DetectionResult:
+    def transmit(self, packet: QuantumPacket, bob: "Bob") -> DetectionResult:
         pass
 
 
@@ -1211,69 +969,8 @@ class ClassicalLayer:
 
 
 # ============================================================================
-# 5. Capa de Seguridad y Reporte (Security Layer)
+# 5. Capa de Seguridad 
 # ============================================================================
-
-@dataclass(frozen=True)
-class SecurityReport:
-    """Punto 6 de la hoja de ruta: resultado inmutable una vez construido."""
-    distancia_km: float | None  # v5.4: None si el canal no tiene esa noción
-    n_qubits: int
-    eta_fibra: float
-    eta_detector: float
-    eta_total: float
-    n_clicks: int
-    n_tamizada: int
-    n_verificacion: int
-    bit_error: BitErrorEstimate
-    phase_error_bound: PhaseErrorEstimate
-    leak_ec_real: int
-    leak_ec_teorico: float
-    discrepancias_tras_cascade: int
-    autenticacion_ok: bool
-    abortado: bool
-    razon: str
-    longitud_clave_final: int
-    tasa_asintotica_bits_por_pulso: float
-    tasa_empirica_bits_por_pulso: float
-    detector_click_rate: float
-    dark_click_rate: float
-    double_click_rate: float
-    clave_final_alice: np.ndarray
-    clave_final_bob: np.ndarray
-
-    @property
-    def claves_coinciden(self) -> bool:
-        return bool(np.array_equal(self.clave_final_alice, self.clave_final_bob))
-
-    @property
-    def qber_medido(self) -> float:
-        """v5.4: sustituye al campo `expected_qber`, que en los dos
-        constructores de SecurityReport se limitaba a asignar
-        literalmente bit_error.value -- un duplicado sin cálculo propio
-        que solo podía desincronizarse por error, nunca aportar
-        información nueva."""
-        return self.bit_error.value
-
-    @property
-    def f_ec_empirico(self) -> float:
-        """
-        f_EC realmente medido en ESTA ejecución:
-            f_EC = leak_ec_real / (n_resto * h(QBER))
-        Cascade real bien ajustado: ~1.05-1.20 (ver SecurityParameters
-        .fec_efficiency, que es el valor DE REFERENCIA usado para
-        leak_ec_teorico; este es el que se observó de verdad).
-        NaN si no hay datos suficientes (p.ej. ejecución abortada antes
-        de reconciliar, o QBER puntual == 0 exacto).
-        """
-        n_resto = self.n_tamizada - self.n_verificacion
-        if n_resto <= 0 or self.bit_error.value <= 0:
-            return float("nan")
-        h = float(entropia_binaria(self.bit_error.value))
-        if h <= 0:
-            return float("nan")
-        return self.leak_ec_real / (n_resto * h)
-
 
 class SecurityLayer:
     """Capa 3: Evalúa la cota de información y genera el reporte final de seguridad."""
