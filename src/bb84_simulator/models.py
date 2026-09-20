@@ -67,7 +67,7 @@ class SecurityReport:
         n_resto = self.n_tamizada - self.n_verificacion
         if n_resto <= 0 or self.bit_error.value <= 0:
             return float("nan")
-        from bb84_simulator.simulator import entropia_binaria
+        from bb84_simulator.security import entropia_binaria
 
         h = float(entropia_binaria(self.bit_error.value))
         if h <= 0:
