@@ -1,5 +1,6 @@
 """
-Modelos de canal cuántico (Fibra óptica, Despolarizante y Espacio Libre).
+Modelos de canal cuántico (Fibra óptica, Despolarizante y Espacio Libre)
+con física de detección de dos detectores independientes (D0 y D1).
 """
 
 from __future__ import annotations
@@ -40,33 +41,65 @@ def _detectar_en_bob(
     qber_intrinseco: float = 0.0,
     prob_depolarizacion: float = 0.0,
 ) -> DetectionResult:
-    """Física de detección compartida por todos los ChannelModel."""
+    """
+    Física de detección realista compartida con dos detectores independientes (D0 y D1).
+
+    Física del modelo:
+    1. Atenuación del canal (eta_total = eta_fibra * eta_detector).
+    2. Si bases coinciden: el fotón se dirige a D0 (si bit=0) o D1 (si bit=1).
+    3. Si bases discrepan: el fotón se divide en el divisor de haz y elige D0 o D1 con prob. 0.5.
+    4. Cuentas oscuras independientes en D0 y D1 (prob_dark_count por detector).
+    5. Doble clic (ambos detectores activos): asignación aleatoria uniforme de bit.
+    """
     eta_total = eta_fibra * eta_detector
     n = len(packet.bits)
 
+    # 1. Transmisión/llegada del fotón al módulo de detección
     llega_foton = entropy.random(n) < eta_total
-    hay_dark_count = entropy.random(n) < prob_dark_count
-    hay_click = llega_foton | hay_dark_count
-    doble_click = llega_foton & hay_dark_count
 
+    # 2. Selección de bases en Bob
     bases_bob = bob.choose_bases(n)
-    resultado_real = bob.measure(packet_canal, bases_bob)
 
+    # 3. Ruido intrínseco / despolarización previa a la medición
+    bits_transito = packet_canal.bits.copy()
     if qber_intrinseco > 0:
         flips = entropy.random(n) < qber_intrinseco
-        resultado_real = np.where(flips, 1 - resultado_real, resultado_real)
+        bits_transito[flips] ^= 1
 
     if prob_depolarizacion > 0:
         despolariza = entropy.random(n) < prob_depolarizacion
-        aleatorio = entropy.integers(0, 2, size=n)
-        resultado_real = np.where(despolariza, aleatorio, resultado_real)
+        bits_transito[despolariza] = entropy.integers(0, 2, size=int(np.sum(despolariza)))
 
-    resultado_dark = entropy.integers(0, 2, size=n)
-    bits_bob = np.where(
-        doble_click,
-        entropy.integers(0, 2, size=n),
-        np.where(llega_foton, resultado_real, resultado_dark),
+    # 4. Divisor de haz y polarizador: enrutamiento a D0 y D1
+    coinciden = packet_canal.bases == bases_bob
+    rand_bs = entropy.random(n) < 0.5
+
+    signal_d0 = llega_foton & (
+        (coinciden & (bits_transito == 0)) | (~coinciden & rand_bs)
     )
+    signal_d1 = llega_foton & (
+        (coinciden & (bits_transito == 1)) | (~coinciden & ~rand_bs)
+    )
+
+    # 5. Cuentas oscuras independientes en D0 y D1
+    dark_d0 = entropy.random(n) < prob_dark_count
+    dark_d1 = entropy.random(n) < prob_dark_count
+
+    # 6. Disparo final de detectores
+    click_d0 = signal_d0 | dark_d0
+    click_d1 = signal_d1 | dark_d1
+
+    # 7. Clasificación de eventos de detección
+    hay_click = click_d0 | click_d1
+    doble_click = click_d0 & click_d1
+
+    bits_bob = np.zeros(n, dtype=np.uint8)
+    bits_bob[click_d1 & ~click_d0] = 1
+
+    # En caso de doble clic, el resultado es ambiguo (asignación aleatoria de bit)
+    idx_dobles = np.flatnonzero(doble_click)
+    if len(idx_dobles) > 0:
+        bits_bob[idx_dobles] = entropy.integers(0, 2, size=len(idx_dobles))
 
     idx_click = np.flatnonzero(hay_click)
     return DetectionResult(
@@ -80,8 +113,8 @@ def _detectar_en_bob(
         n_enviados=n,
         n_clicks=len(idx_click),
         n_fotones_detectados=int(np.sum(llega_foton)),
-        n_dark_counts=int(np.sum(hay_dark_count)),
-        n_double_clicks=int(np.sum(doble_click)),
+        n_dark_counts=int(np.sum((dark_d0 | dark_d1) & ~llega_foton)),
+        n_double_clicks=len(idx_dobles),
     )
 
 

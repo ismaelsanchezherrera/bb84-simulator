@@ -30,7 +30,15 @@ from bb84_simulator.security import (
 # ============================================================================
 
 class BB84Simulator:
-    """Orquestador principal desacoplado que ejecuta la simulación de 3 capas."""
+    """
+    Orquestador principal desacoplado que ejecuta la simulación de 3 capas.
+
+    Hipótesis del Modelo:
+    El protocolo asume la existencia de un canal clásico autenticado exógeno.
+    La fase de confirmación de clave (confirmacion_clave_ok) comprueba la coincidencia
+    de las claves resultantes (mediante hashes/tags), pero no autentica la identidad
+    de las partes frente a ataques de tipo Man-In-The-Middle (MITM) en el canal clásico.
+    """
 
     def __init__(
         self,
@@ -180,12 +188,9 @@ class BB84Simulator:
         )
 
         # Key Confirmation
-        auth_ok = self.classical_layer.key_confirmation(alice_resto, bob_reconciliado)
+        confirmacion_clave_ok = self.classical_layer.key_confirmation(alice_resto, bob_reconciliado)
 
-        # Privacy Amplification (Leftover Hash Lemma). Se descuenta también
-        # tag_length_efectivo: key_confirmation revela ese hash sobre
-        # alice_resto por el canal público (ver docstring de
-        # calculate_lhl_length).
+        # Privacy Amplification (Leftover Hash Lemma)
         target_len = self.security_layer.calculate_lhl_length(
             n_resto=len(alice_resto),
             e_ph=pe_data["phase_error_bound"],
@@ -208,7 +213,7 @@ class BB84Simulator:
             pe_data=pe_data,
             bits_revelados_ec=leak_ec,
             discrepancias=discrepancias,
-            auth_ok=auth_ok,
+            confirmacion_clave_ok=confirmacion_clave_ok,
             clave_alice_pa=clave_alice_pa,
             clave_bob_pa=clave_bob_pa,
             distancia_km=distancia_km_reporte,
@@ -331,9 +336,9 @@ def run_statistical_tests():
         prob_dark_count=1e-3,
         qber_intrinseco=0.0,
     )
-    assert math.isclose(res_dark.detector_click_rate, 1e-3, rel_tol=0.25)
-    print(f" [PASS] Dark count rate a canal saturado: {res_dark.detector_click_rate:.5f} (objetivo ~0.00100)")
-
+    assert math.isclose(res_dark.detector_click_rate, 2e-3, rel_tol=0.25)
+    print(f" [PASS] Dark count rate a canal saturado: {res_dark.detector_click_rate:.5f} (objetivo ~0.00200)")
+    
     # Test 6 (regresión): Cascade debe corregir el 100% de los errores
     # inyectados, para un barrido de QBER realista y varias semillas.
     # Ver el docstring de esta función para el motivo.

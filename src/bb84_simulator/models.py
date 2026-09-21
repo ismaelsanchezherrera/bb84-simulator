@@ -1,5 +1,5 @@
 """
-Modelos de datos y estructuras de reporte para el simulador BB84.
+Modelos de datos del simulador BB84.
 """
 
 from __future__ import annotations
@@ -24,6 +24,11 @@ class DetectionResult:
     n_dark_counts: int
     n_double_clicks: int
 
+    def __post_init__(self) -> None:
+        for arr in (self.bits_alice, self.bases_alice, self.bits_bob, self.bases_bob):
+            if isinstance(arr, np.ndarray):
+                arr.flags.writeable = False
+
 
 @dataclass(frozen=True)
 class SecurityReport:
@@ -42,7 +47,7 @@ class SecurityReport:
     leak_ec_real: int
     leak_ec_teorico: float
     discrepancias_tras_cascade: int
-    autenticacion_ok: bool
+    confirmacion_clave_ok: bool
     abortado: bool
     razon: str
     longitud_clave_final: int
@@ -53,6 +58,12 @@ class SecurityReport:
     double_click_rate: float
     clave_final_alice: np.ndarray
     clave_final_bob: np.ndarray
+
+    def __post_init__(self) -> None:
+        if isinstance(self.clave_final_alice, np.ndarray):
+            self.clave_final_alice.flags.writeable = False
+        if isinstance(self.clave_final_bob, np.ndarray):
+            self.clave_final_bob.flags.writeable = False
 
     @property
     def claves_coinciden(self) -> bool:

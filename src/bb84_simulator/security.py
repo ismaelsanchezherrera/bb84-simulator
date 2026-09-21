@@ -52,7 +52,7 @@ class SecurityParameters:
     def tag_length_efectivo(self) -> int:
         if self.tag_length is not None:
             return self.tag_length
-        return max(1, math.ceil(math.log2(1.0 / self.epsilon_auth)))
+        return calcular_tag_length(self.epsilon_auth)
 
 
 @dataclass(frozen=True)
@@ -75,18 +75,31 @@ class PhaseErrorEstimate:
     )
 
 
-def entropia_binaria(x: float | np.ndarray) -> float | np.ndarray:
-    """Entropía binaria h2(x), con h2(0)=h2(1)=0."""
-    x_arr = np.asarray(x, dtype=float)
-    out = np.zeros_like(x_arr)
-    mask = (x_arr > 0.0) & (x_arr < 1.0)
+def entropia_binaria(p: float | np.ndarray) -> float | np.ndarray:
+    """Calcula la entropía binaria H2(p). Requiere p en el intervalo [0.0, 0.5]."""
+    p_arr = np.asarray(p, dtype=float)
+    if np.any(~np.isfinite(p_arr)) or np.any((p_arr < 0.0) | (p_arr > 0.5)):
+        raise ValueError(
+            f"El parámetro de error p debe estar en el intervalo [0.0, 0.5] (obtenido: {p})"
+        )
+
+    out = np.zeros_like(p_arr)
+    mask = (p_arr > 0.0) & (p_arr <= 0.5)
     out[mask] = (
-        -x_arr[mask] * np.log2(x_arr[mask])
-        - (1.0 - x_arr[mask]) * np.log2(1.0 - x_arr[mask])
+        -p_arr[mask] * np.log2(p_arr[mask])
+        - (1.0 - p_arr[mask]) * np.log2(1.0 - p_arr[mask])
     )
-    if np.ndim(x) == 0:
+    if np.ndim(p) == 0:
         return float(out)
     return out
+
+def calcular_tag_length(epsilon_auth: float) -> int:
+    """Calcula el tamaño necesario de tag evitando OverflowError en 1/epsilon_auth."""
+    if not (0.0 < epsilon_auth < 1.0) or not np.isfinite(epsilon_auth):
+        raise ValueError(
+            f"epsilon_auth debe estar en el intervalo (0.0, 1.0) (obtenido: {epsilon_auth})"
+        )
+    return int(np.ceil(-np.log2(epsilon_auth)))
 
 
 def cota_serfling_superior(
@@ -140,7 +153,7 @@ class SecurityLayer:
         pe_data: dict[str, Any] | None,
         bits_revelados_ec: int,
         discrepancias: int,
-        auth_ok: bool,
+        confirmacion_clave_ok: bool,
         clave_alice_pa: np.ndarray,
         clave_bob_pa: np.ndarray,
         distancia_km: float | None,
@@ -175,7 +188,7 @@ class SecurityLayer:
                 leak_ec_real=0,
                 leak_ec_teorico=0.0,
                 discrepancias_tras_cascade=discrepancias,
-                autenticacion_ok=False,
+                confirmacion_clave_ok=False,
                 abortado=True,
                 razon=abort_reason or "Abortado.",
                 longitud_clave_final=0,
@@ -205,9 +218,9 @@ class SecurityLayer:
         if phase_bound.value >= UMBRAL_QBER_SEGURIDAD:
             abort = True
             razon = f"QBER Cota ({phase_bound.value:.4f}) supera umbral ({UMBRAL_QBER_SEGURIDAD})."
-        elif not auth_ok:
+        elif not confirmacion_clave_ok:
             abort = True
-            razon = "Fallo de autenticación / confirmación de clave."
+            razon = "Fallo de confirmación de clave."
         elif len(clave_alice_pa) == 0:
             abort = True
             razon = (
@@ -238,7 +251,7 @@ class SecurityLayer:
             leak_ec_real=leak_ec_real,
             leak_ec_teorico=leak_ec_teorico,
             discrepancias_tras_cascade=discrepancias,
-            autenticacion_ok=auth_ok,
+            confirmacion_clave_ok=confirmacion_clave_ok,
             abortado=abort,
             razon=razon,
             longitud_clave_final=final_len,
@@ -250,3 +263,5 @@ class SecurityLayer:
             clave_final_alice=clave_alice_pa if not abort else np.array([], dtype=np.uint8),
             clave_final_bob=clave_bob_pa if not abort else np.array([], dtype=np.uint8),
         )
+
+    

@@ -135,6 +135,7 @@ def test_atenuacion_de_fibra_coincide_con_formula_teorica():
 def test_dark_count_rate_domina_en_canal_saturado():
     # A 500 km / 0.2 dB/km, eta_fibra ~ 1e-10: casi ningún fotón real
     # sobrevive, así que casi todos los clicks vienen de dark counts.
+    # Con 2 detectores independientes (D0 y D1), prob_click_total ~ 2 * prob_dark_count.
     sim = BB84Simulator(EntropySource.simulation(seed=42), SecurityParameters())
     resultado = sim.run(
         n_qubits=200_000,
@@ -144,4 +145,6 @@ def test_dark_count_rate_domina_en_canal_saturado():
         prob_dark_count=1e-3,
         qber_intrinseco=0.0,
     )
-    assert math.isclose(resultado.detector_click_rate, 1e-3, rel_tol=0.25)
+    # 2 * 1e-3 = 2e-3 debido a la presencia de dos detectores D0 y D1
+    prob_esperada = 2e-3
+    assert math.isclose(resultado.detector_click_rate, prob_esperada, rel_tol=0.25)

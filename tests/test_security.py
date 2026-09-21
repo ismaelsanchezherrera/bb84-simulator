@@ -71,7 +71,7 @@ def test_evaluate_and_build_aborta_si_lhl_no_deja_bits():
         pe_data=pe_data,
         bits_revelados_ec=50,
         discrepancias=0,
-        auth_ok=True,
+        confirmacion_clave_ok=True,
         clave_alice_pa=np.array([], dtype=np.uint8),  # LHL dejó 0 bits
         clave_bob_pa=np.array([], dtype=np.uint8),
         distancia_km=10.0,

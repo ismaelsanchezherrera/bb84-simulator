@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import secrets
+from typing import Union
 import numpy as np
 
 
@@ -115,23 +116,48 @@ class EntropySource:
             return int(self._rng.integers(0, upper))
         return self._crypto.randrange(0, upper)
 
-    def poisson(self, lam) -> np.ndarray:
-        lam_arr = np.atleast_1d(np.asarray(lam, dtype=np.float64))
-        escalar = np.ndim(lam) == 0
+    def poisson(self, lam: Union[float, np.ndarray]) -> Union[int, np.ndarray]:
+        """Genera variables aleatorias de Poisson soportando entradas escalares o arrays.
+        
+        Límite de estabilidad: lambda <= 700 (por underflow en e^-lambda de Knuth).
+        """
+        lam_arr = np.atleast_1d(lam)
+        
+        if np.any(lam_arr < 0) or not np.all(np.isfinite(lam_arr)):
+            raise ValueError(f"El parámetro lambda debe ser no negativo y finito (obtenido: {lam})")
+        
+        if np.any(lam_arr > 700):
+            raise ValueError(f"El parámetro lambda excede el límite de estabilidad del algoritmo (lambda <= 700)")
 
-        if self.mode == "simulation":
-            resultado = self._rng.poisson(lam_arr)
+        # Caso especial para lambda = 0
+        res = np.zeros_like(lam_arr, dtype=int)
+        mask_pos = lam_arr > 0
+        
+        if not np.any(mask_pos):
+            return int(res[0]) if np.ndim(lam) == 0 else res
+
+        # Algoritmo de Knuth para elementos con lambda > 0
+        l_vals = np.exp(-lam_arr[mask_pos])
+        k_vals = np.zeros(np.sum(mask_pos), dtype=int)
+        p_vals = np.ones(np.sum(mask_pos), dtype=float)
+
+        while True:
+            active = p_vals > l_vals
+            if not np.any(active):
+                break
+            k_vals[active] += 1
+            p_vals[active] *= self.random(np.sum(active))
+
+        res[mask_pos] = k_vals - 1
+        return int(res[0]) if np.ndim(lam) == 0 else res
+
+    def raw_crypto_bits(self, size: int) -> np.ndarray:
+        """Genera bits aleatorios no acotados por un PRNG para seguridad ITS (Toeplitz/LHL)."""
+        if self.mode == "crypto":
+            # Extrae bytes directamente del sistema operativo sin semilla ni PRNG de estado fijo
+            n_bytes = (size + 7) // 8
+            raw_bytes = os.urandom(n_bytes)
+            bits = np.unpackbits(np.frombuffer(raw_bytes, dtype=np.uint8))
+            return bits[:size]
         else:
-            n = lam_arr.shape[0]
-            L = np.exp(-lam_arr)
-            k = np.zeros(n, dtype=np.int64)
-            p = np.ones(n, dtype=np.float64)
-            activos = lam_arr > 1e-15
-            while np.any(activos):
-                idx = np.flatnonzero(activos)
-                k[idx] += 1
-                p[idx] *= self._uniforme01_criptografico(len(idx))
-                activos[idx] = p[idx] > L[idx]
-            resultado = k - 1
-
-        return int(resultado[0]) if escalar else resultado.astype(np.int64)
+            return self.random_bits(size)

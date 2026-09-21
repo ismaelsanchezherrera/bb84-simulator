@@ -50,6 +50,12 @@ class ClassicalLayer:
         clave_bob: np.ndarray,
         fraccion_verificacion: float = 0.15,
     ) -> dict[str, Any]:
+        if len(clave_alice) != len(clave_bob):
+            raise ValueError(
+                f"Las claves de Alice y Bob deben tener la misma longitud "
+                f"(obtenido: Alice={len(clave_alice)}, Bob={len(clave_bob)})"
+            )
+
         if not 0.0 < fraccion_verificacion < 1.0:
             raise ValueError("fraccion_verificacion debe estar en el intervalo (0, 1).")
 

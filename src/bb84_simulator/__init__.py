@@ -29,6 +29,7 @@ from bb84_simulator.security import (
     PhaseErrorEstimate,
     SecurityLayer,
     SecurityParameters,
+    calcular_tag_length,
     cota_serfling_superior,
     entropia_binaria,
 )
