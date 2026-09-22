@@ -23,14 +23,22 @@ Este simulador implementa el protocolo BB84 bajo las siguientes hipótesis de mo
 
 - Python 3.9 o superior
 
-## Instalación en Desarrollo
-
-Clona el repositorio e instala el paquete en modo editable junto con sus dependencias de desarrollo:
+## Instalación e Inicio Rápido
 
 ```bash
-git clone [https://github.com/ismaelsanchezherrera/bb84-simulator.git](https://github.com/ismaelsanchezherrera/bb84-simulator.git)
-cd bb84-simulator
+# 1. Clonar el repositorio
+git clone [https://github.com/tu-usuario/simulador-bb84.git](https://github.com/tu-usuario/simulador-bb84.git)
+cd simulador-bb84
+
+# 2. Crear y activar el entorno virtual
 python -m venv .venv
-source .venv/Scripts/activate  # En Git Bash en Windows
-pip install -e ".[dev]"
+
+# En Windows (PowerShell):
+.venv\Scripts\Activate.ps1
+
+# En Linux/macOS:
+source .venv/bin/activate
+
+# 3. Instalar el paquete en modo editable con sus dependencias
+pip install -e .
 ```
