@@ -160,4 +160,4 @@ class EntropySource:
             bits = np.unpackbits(np.frombuffer(raw_bytes, dtype=np.uint8))
             return bits[:size]
         else:
-            return self.random_bits(size)
+            return self.integers(0, 2, size=size)

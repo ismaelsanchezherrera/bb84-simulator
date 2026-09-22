@@ -20,18 +20,46 @@ UMBRAL_QBER_SEGURIDAD = 0.11
 
 @dataclass(frozen=True)
 class SecurityParameters:
-    """Parámetros de seguridad unificados según el marco composable moderno."""
+    """Configuración del marco de seguridad composable."""
 
+    epsilon_cor: float = 1e-10   # Cota de corrección (Cascade/EC)
+    epsilon_sec: float = 1e-10   # Cota de secreto (LHL / Privacy Amplification)
+    epsilon_auth: float = 1e-12  # Cota de fallo de autenticación/confirmación
+    fec_efficiency: float = 1.10
+    explicit_tag_length: int | None = None
+
+    # Campos para compatibilidad con la suite existente
     epsilon_pe: float = 1e-10
     epsilon_pa: float = 1e-10
-    epsilon_auth: float = 1e-12
     epsilon_ec: float = 1e-10
-    fec_efficiency: float = 1.10
     tag_length: int | None = None
 
     def __post_init__(self) -> None:
-        for nombre in ("epsilon_pe", "epsilon_pa", "epsilon_auth", "epsilon_ec"):
-            _validar_epsilon(nombre, getattr(self, nombre))
+        # Sincronización de alias de compatibilidad
+        if self.tag_length is not None and self.explicit_tag_length is None:
+            object.__setattr__(self, "explicit_tag_length", self.tag_length)
+        elif self.explicit_tag_length is not None and self.tag_length is None:
+            object.__setattr__(self, "tag_length", self.explicit_tag_length)
+
+        if self.epsilon_pe != 1e-10 and self.epsilon_sec == 1e-10:
+            object.__setattr__(self, "epsilon_sec", self.epsilon_pe)
+        elif self.epsilon_sec != 1e-10 and self.epsilon_pe == 1e-10:
+            object.__setattr__(self, "epsilon_pe", self.epsilon_sec)
+
+        if self.epsilon_pa != 1e-10 and self.epsilon_sec == 1e-10:
+            object.__setattr__(self, "epsilon_sec", self.epsilon_pa)
+        elif self.epsilon_sec != 1e-10 and self.epsilon_pa == 1e-10:
+            object.__setattr__(self, "epsilon_pa", self.epsilon_sec)
+
+        if self.epsilon_ec != 1e-10 and self.epsilon_cor == 1e-10:
+            object.__setattr__(self, "epsilon_cor", self.epsilon_ec)
+        elif self.epsilon_cor != 1e-10 and self.epsilon_ec == 1e-10:
+            object.__setattr__(self, "epsilon_ec", self.epsilon_cor)
+
+        # Validación de cotas epsilon
+        _validar_epsilon("epsilon_cor", self.epsilon_cor)
+        _validar_epsilon("epsilon_sec", self.epsilon_sec)
+        _validar_epsilon("epsilon_auth", self.epsilon_auth)
 
         if (
             isinstance(self.fec_efficiency, bool)
@@ -41,19 +69,30 @@ class SecurityParameters:
         ):
             raise ValueError("fec_efficiency debe ser un real finito >= 1.")
 
-        if self.tag_length is not None and (
-            isinstance(self.tag_length, bool)
-            or not isinstance(self.tag_length, int)
-            or self.tag_length <= 0
-        ):
-            raise ValueError("tag_length debe ser un entero positivo o None.")
+        # Validación de coherencia de tag_length explícito frente a epsilon_auth
+        tag = self.explicit_tag_length
+        if tag is not None:
+            if isinstance(tag, bool) or not isinstance(tag, int) or tag <= 0:
+                raise ValueError("explicit_tag_length debe ser un entero positivo")
+            cota_colision = 2.0 ** (-tag)
+            if cota_colision > self.epsilon_auth:
+                raise ValueError(
+                    f"explicit_tag_length={tag} proporciona una cota de colisión "
+                    f"de 2^-{tag} = {cota_colision:.2e}, "
+                    f"lo cual contradice el epsilon_auth solicitado ({self.epsilon_auth:.2e})"
+                )
 
     @property
     def tag_length_efectivo(self) -> int:
-        if self.tag_length is not None:
-            return self.tag_length
+        """Calcula el tamaño necesario de la etiqueta basado en epsilon_auth."""
+        if self.explicit_tag_length is not None:
+            return self.explicit_tag_length
         return calcular_tag_length(self.epsilon_auth)
 
+    @property
+    def epsilon_total(self) -> float:
+        """Cota de seguridad composable global (Cota Unión)."""
+        return self.epsilon_cor + self.epsilon_sec + self.epsilon_auth
 
 @dataclass(frozen=True)
 class BitErrorEstimate:

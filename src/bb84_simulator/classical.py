@@ -110,20 +110,45 @@ class ClassicalLayer:
         longitud_salida: int,
         semilla_publica: int | None = None,
     ) -> np.ndarray:
+        """
+        Amplificación de privacidad mediante hash universal con matriz de Toeplitz binaria.
+
+        Si se proporciona `semilla_publica`, los bits de la matriz se derivan de esa semilla
+        para permitir que Alice y Bob usen la misma matriz (p. ej., en key_confirmation).
+        De lo contrario, en modo 'crypto', se leen directamente de os.urandom vía `entropy.raw_crypto_bits()`.
+        """
         longitud_salida = max(0, int(longitud_salida))
         n = len(clave)
         if longitud_salida == 0 or n == 0:
             return np.array([], dtype=np.uint8)
 
-        if semilla_publica is None:
-            semilla_publica = self.entropy.random_seed_int()
+        if longitud_salida >= n:
+            return clave[:longitud_salida].astype(np.uint8)
 
-        rng = np.random.default_rng(semilla_publica)
-        semilla_toeplitz = rng.integers(0, 2, size=longitud_salida + n - 1)
+        num_bits_toeplitz = longitud_salida + n - 1
 
+        # Si hay semilla pública explícita (p. ej., confirmación de clave),
+        # se genera la matriz de forma determinista compartida entre las partes.
+        if semilla_publica is not None:
+            rng_compartido = EntropySource.simulation(seed=int(semilla_publica))
+            semilla_toeplitz = rng_compartido.integers(0, 2, size=num_bits_toeplitz)
+        else:
+            semilla_toeplitz = self.entropy.raw_crypto_bits(num_bits_toeplitz)
+
+        # Multiplicación O(N log N) vía FFT
         conv = _convolucion_fft(semilla_toeplitz.astype(np.int64), clave.astype(np.int64))
         y = conv[n - 1 : n - 1 + longitud_salida]
         return (y & 1).astype(np.uint8)
+
+    @staticmethod
+    def privacy_amplification(
+        key: np.ndarray,
+        target_length: int,
+        entropy: EntropySource,
+    ) -> np.ndarray:
+        """Método estático de conveniencia para amplificación de privacidad."""
+        capa_clasica = ClassicalLayer(entropy, SecurityParameters())
+        return capa_clasica.privacy_amplification_toeplitz(key, target_length)
 
     def key_confirmation(self, clave_a: np.ndarray, clave_b: np.ndarray) -> bool:
         if len(clave_a) == 0 or len(clave_b) == 0:
