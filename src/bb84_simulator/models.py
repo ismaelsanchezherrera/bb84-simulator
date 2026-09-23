@@ -67,8 +67,12 @@ class SecurityReport:
 
     @property
     def claves_coinciden(self) -> bool:
+        """Verifica que las claves coincidan, no estén vacías y el reporte no esté abortado."""
+        if getattr(self, "abortado", False):
+            return False
+        if len(self.clave_final_alice) == 0 or len(self.clave_final_bob) == 0:
+            return False
         return bool(np.array_equal(self.clave_final_alice, self.clave_final_bob))
-
     @property
     def qber_medido(self) -> float:
         return self.bit_error.value

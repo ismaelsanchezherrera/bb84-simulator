@@ -13,6 +13,11 @@ from typing import Any, ClassVar
 
 import numpy as np
 
+from bb84_simulator.validation import (
+    validar_entero_positivo,
+    validar_no_negativo,
+    validar_probabilidad,
+)
 from bb84_simulator.attacks import EveStrategy, InterceptResendEve
 from bb84_simulator.channels import ChannelModel, FiberChannel
 from bb84_simulator.classical import ClassicalLayer
@@ -110,10 +115,17 @@ class BB84Simulator:
         None en caso contrario (DepolarizingChannel y FreeSpaceChannel
         no tienen una noción de distancia de fibra).
         """
-        # Validación temprana de la cantidad de qubits
-        if n_qubits <= 0:
-            raise ValueError("n_qubits debe ser positivo.")
-
+        # Validaciones exhaustivas de parámetros enteros y de probabilidad/distancia
+        validar_entero_positivo("n_qubits", n_qubits)
+        validar_entero_positivo("n_min_tamizados", n_min_tamizados)
+        validar_entero_positivo("n_pasadas_cascade", n_pasadas_cascade)
+        validar_probabilidad("fraccion_verificacion", fraccion_verificacion)
+        validar_probabilidad("eta_detector", eta_detector)
+        validar_probabilidad("prob_dark_count", prob_dark_count)
+        validar_probabilidad("qber_intrinseco", qber_intrinseco)
+        validar_probabilidad("eve_fraction", eve_fraction)
+        validar_no_negativo("distancia_km", distancia_km)
+        validar_no_negativo("atenuacion_db_km", atenuacion_db_km)
         # Agrupamos los parámetros físicos por defecto para facilitar la validación
         valores_fibra = {
             "distancia_km": distancia_km,
@@ -211,6 +223,22 @@ class BB84Simulator:
         # Confirmación de Claves (Key Confirmation)
         # Se verifica mediante un hash si ambas claves son idénticas tras Cascade
         confirmacion_clave_ok = self.classical_layer.key_confirmation(alice_resto, bob_reconciliado)
+
+        # SALIDA TEMPRANA: Si las claves no coinciden tras Cascade, abortamos
+        # evitando el cálculo innecesario de la matriz de Toeplitz por FFT.
+        if not confirmacion_clave_ok:
+            return self.security_layer.evaluate_and_build(
+                detection,
+                n_tamizada,
+                pe_data,
+                leak_ec,
+                discrepancias,
+                False,
+                np.array([], dtype=np.uint8),
+                np.array([], dtype=np.uint8),
+                distancia_km_reporte,
+                abort_reason="Fallo en la confirmación de clave: existen discrepancias no corregidas tras Cascade.",
+            )
 
         # Amplificación de Privacidad (Privacy Amplification - LHL)
         # 1. Calculamos la longitud de clave segura considerando la información filtrada a Eve (leak_ec y cota Serfling)

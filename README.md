@@ -27,8 +27,8 @@ Este simulador implementa el protocolo BB84 bajo las siguientes hipótesis de mo
 
 ```bash
 # 1. Clonar el repositorio
-git clone [https://github.com/tu-usuario/simulador-bb84.git](https://github.com/tu-usuario/simulador-bb84.git)
-cd simulador-bb84
+git clone [https://github.com/ismaelsanchezherreracubero/bb84-simulator.git](https://github.com/ismaelsanchezherreracubero/bb84-simulator.git)
+cd bb84-simulator
 
 # 2. Crear y activar el entorno virtual
 python -m venv .venv
