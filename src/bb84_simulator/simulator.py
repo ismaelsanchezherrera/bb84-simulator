@@ -45,9 +45,15 @@ class BB84Simulator:
         entropy: EntropySource,
         sec_params: SecurityParameters | None = None,
     ):
+        # Inyección de dependencias para la generación de números aleatorios
         self.entropy = entropy
+        # Si no se proveen parámetros de seguridad explícitos, usamos los valores por defecto
         self.sec_params = sec_params or SecurityParameters()
+        
+        # Inicialización de las capas clásicas y de seguridad
+        # ClassicalLayer maneja sifting, estimación de parámetros, Cascade y Toeplitz
         self.classical_layer = ClassicalLayer(self.entropy, self.sec_params)
+        # SecurityLayer evalúa cotas teóricas (Serfling, LHL) y construye el reporte final
         self.security_layer = SecurityLayer(self.sec_params)
 
     # Defaults de los parámetros propios de FiberChannel, usados por run()
@@ -104,9 +110,11 @@ class BB84Simulator:
         None en caso contrario (DepolarizingChannel y FreeSpaceChannel
         no tienen una noción de distancia de fibra).
         """
+        # Validación temprana de la cantidad de qubits
         if n_qubits <= 0:
             raise ValueError("n_qubits debe ser positivo.")
 
+        # Agrupamos los parámetros físicos por defecto para facilitar la validación
         valores_fibra = {
             "distancia_km": distancia_km,
             "atenuacion_db_km": atenuacion_db_km,
@@ -117,7 +125,9 @@ class BB84Simulator:
             "eve_fraction": eve_fraction,
         }
 
+        # Lógica de inyección de dependencias para el canal
         if channel is not None:
+            # Comprobamos que no se intenten sobreescribir variables de fibra si se pasa un canal custom
             no_default = [
                 nombre for nombre, valor in valores_fibra.items()
                 if valor != self._FIBER_DEFAULTS[nombre]
@@ -131,23 +141,33 @@ class BB84Simulator:
                     "'channel' para usar el FiberChannel por defecto."
                 )
         else:
+            # Construcción del canal de fibra óptica por defecto
             channel = FiberChannel(entropy=self.entropy, **valores_fibra)
 
-        # None si `channel` no es (ni envuelve) un canal de fibra.
+        # Extracción segura de la distancia (retorna None si el canal no tiene este atributo)
         distancia_km_reporte = getattr(channel, "distancia_km", None)
 
-        # 1. Configuración de la Capa Cuántica
+        # ==========================================
+        # FASE 1: Transmisión Cuántica
+        # ==========================================
+        
+        # Instanciamos los actores principales
         alice = Alice(self.entropy)
         bob = Bob(self.entropy)
         quantum_layer = QuantumLayer(alice, bob, channel)
 
-        # Transmisión cuántica
+        # Ejecutamos la simulación física (preparación, canal con ruido/Eve, y medición de Bob)
         detection = quantum_layer.execute(n_qubits)
 
-        # 2. Métodos Privados de la Fase Clásica
+        # ==========================================
+        # FASE 2: Post-procesamiento Clásico
+        # ==========================================
+        
+        # Sifting (Tamizado): Descartamos los bits donde Alice y Bob usaron bases distintas
         clave_alice, clave_bob = self.classical_layer.sifting(detection)
         n_tamizada = len(clave_alice)
 
+        # Salida temprana: Si la atenuación fue demasiada, no hay suficientes bits para continuar
         if n_tamizada < n_min_tamizados:
             return self.security_layer.evaluate_and_build(
                 detection, n_tamizada, None, 0, 0, False,
@@ -155,15 +175,14 @@ class BB84Simulator:
                 abort_reason="Insuficientes bits tamizados."
             )
 
-        # Parameter Estimation
+        # Estimación de Parámetros (Parameter Estimation - PE)
+        # Sacrificamos una fracción aleatoria de la clave tamizada para estimar el QBER
         pe_data = self.classical_layer.parameter_estimation(
             clave_alice, clave_bob, fraccion_verificacion
         )
 
-        # Salida temprana: si el QBER YA supera el umbral de seguridad no
-        # tiene sentido gastar Cascade + amplificación de privacidad en
-        # una ejecución que se va a abortar de todas formas (la versión recibida los
-        # ejecutaba siempre y descartaba el resultado al final).
+        # Salida temprana: Si la cota de error supera el umbral, asumimos presencia de Eve
+        # Esto evita consumir recursos computacionales en Cascade y Toeplitz innecesariamente.
         if pe_data["phase_error_bound"].value >= UMBRAL_QBER_SEGURIDAD:
             return self.security_layer.evaluate_and_build(
                 detection, n_tamizada, pe_data, 0, 0, False,
@@ -174,10 +193,12 @@ class BB84Simulator:
                 ),
             )
 
+        # Claves restantes tras sacrificar los bits para la estimación
         alice_resto = pe_data["clave_alice_resto"]
         bob_resto = pe_data["clave_bob_resto"]
 
-        # Error Correction
+        # Corrección de Errores (Error Correction - Cascade)
+        # Bob reconcilia su clave con la de Alice intercambiando paridades públicamente
         bob_reconciliado, leak_ec, discrepancias = (
             self.classical_layer.error_correction_cascade(
                 alice_resto,
@@ -187,10 +208,12 @@ class BB84Simulator:
             )
         )
 
-        # Key Confirmation
+        # Confirmación de Claves (Key Confirmation)
+        # Se verifica mediante un hash si ambas claves son idénticas tras Cascade
         confirmacion_clave_ok = self.classical_layer.key_confirmation(alice_resto, bob_reconciliado)
 
-        # Privacy Amplification (Leftover Hash Lemma)
+        # Amplificación de Privacidad (Privacy Amplification - LHL)
+        # 1. Calculamos la longitud de clave segura considerando la información filtrada a Eve (leak_ec y cota Serfling)
         target_len = self.security_layer.calculate_lhl_length(
             n_resto=len(alice_resto),
             e_ph=pe_data["phase_error_bound"],
@@ -198,6 +221,7 @@ class BB84Simulator:
             tag_length=self.sec_params.tag_length_efectivo,
         )
 
+        # 2. Comprimimos la clave usando una matriz de Toeplitz compartida (generada vía semilla pública)
         seed_pa = self.entropy.random_seed_int()
         clave_alice_pa = self.classical_layer.privacy_amplification_toeplitz(
             alice_resto, target_len, seed_pa
@@ -206,7 +230,11 @@ class BB84Simulator:
             bob_reconciliado, target_len, seed_pa
         )
 
-        # 3. Capa de Seguridad (Construcción del informe)
+        # ==========================================
+        # FASE 3: Capa de Seguridad y Reporte
+        # ==========================================
+        
+        # Generación del informe final con métricas consolidadas
         return self.security_layer.evaluate_and_build(
             detection=detection,
             n_tamizada=n_tamizada,
@@ -243,17 +271,21 @@ def run_statistical_tests():
     fallo; hay que barrer QBER realista sobre muchas realizaciones.
     """
     print("\n=== Ejecutando Tests Estadísticos de Validación ===")
+    
+    # Fijamos la semilla para asegurar la reproducibilidad de los tests
     entropy = EntropySource.simulation(seed=42)
     sec_params = SecurityParameters()
     sim = BB84Simulator(entropy, sec_params)
 
     # Test 1: Sifting (~50%)
+    # Verifica que estadísticamente, la mitad de las bases coincidan.
     res_ideal = sim.run(n_qubits=100_000, qber_intrinseco=0.0, eta_detector=1.0)
     ratio_sift = res_ideal.n_tamizada / 100_000
     assert 0.48 < ratio_sift < 0.52, f"Falló Sifting Ratio: {ratio_sift}"
     print(f" [PASS] Sifting Rate Ratio ideal: {ratio_sift:.4f} (~0.50)")
 
     # Test 2: QBER con Intercept-Resend completo (debe dar ~25%)
+    # Un ataque IR completo genera un QBER teórico del 25% tras el sifting.
     eve_full = InterceptResendEve()
     res_eve = sim.run(
         n_qubits=100_000,
@@ -267,6 +299,7 @@ def run_statistical_tests():
     print(f" [PASS] Intercept-Resend QBER: {qber_eve:.4f} (~0.25)")
 
     # Test 3: Pérdidas del Canal (Atenuación)
+    # Verifica que la ecuación de transmitancia η = 10^(-(α * L) / 10) se cumpla empíricamente.
     res_canal = sim.run(
         n_qubits=100_000,
         distancia_km=10.0,
@@ -274,18 +307,17 @@ def run_statistical_tests():
         eta_detector=1.0,
         prob_dark_count=0.0,
     )
-    eta_teorica = 10 ** (-0.2 * 10 / 10)  # 0.6309
+    eta_teorica = 10 ** (-0.2 * 10 / 10)  # ~0.6309
     eta_medida = res_canal.detector_click_rate
     assert math.isclose(eta_medida, eta_teorica, rel_tol=0.05)
     print(f" [PASS] Canal Attenuation Click Rate: {eta_medida:.4f} (Teórico: {eta_teorica:.4f})")
 
-    # Test 4: Uniformidad de bits y bases de Alice (antes de cualquier
-    # efecto del canal). Media Y chi-cuadrado de bondad de ajuste: la
-    # media sola no detectaría, p.ej., una anti-correlación bit<->base
-    # que dejara ambas medias en ~0.5 pero la fuente sesgada.
+    # Test 4: Uniformidad de bits y bases de Alice
+    # Se evalúa la media y el test Chi-cuadrado para asegurar la calidad de la fuente entrópica.
     alice_test = Alice(EntropySource.simulation(seed=123))
     n_unif = 200_000
     paquete = alice_test.prepare(n_unif)
+    
     media_bits = float(np.mean(paquete.bits))
     media_bases = float(np.mean(paquete.bases))
     assert 0.49 < media_bits < 0.51, f"Falló uniformidad de bits: {media_bits}"
@@ -293,24 +325,20 @@ def run_statistical_tests():
     print(f" [PASS] Uniformidad de bits de Alice: {media_bits:.4f} (~0.50)")
     print(f" [PASS] Uniformidad de bases de Alice: {media_bases:.4f} (~0.50)")
 
+    # Validación Chi-cuadrado para distribución uniforme de bits
     conteo_bits = np.bincount(paquete.bits, minlength=2)
     chi2_bits = float(np.sum((conteo_bits - n_unif / 2) ** 2) / (n_unif / 2))
-    # 1 grado de libertad; chi2 > 10.83 rechazaría uniformidad a p<0.001
+    # Umbral 10.83 para p<0.001 con 1 grado de libertad
     assert chi2_bits < 10.83, f"Chi-cuadrado de bits sospechosamente alto: {chi2_bits:.3f}"
     print(f" [PASS] Chi-cuadrado uniformidad de bits: {chi2_bits:.3f} (< 10.83 a p<0.001)")
 
-    # v5.4: el chi-cuadrado de bits por sí solo (arriba) no cubría lo que
-    # el comentario de este test llevaba tiempo prometiendo -- detectar
-    # una anti-correlación bit<->base con ambas marginales en ~0.5.
-    # Se añade el chi-cuadrado de uniformidad de BASES (que faltaba) y,
-    # sobre todo, un chi-cuadrado de independencia sobre la tabla de
-    # contingencia 2x2 bit x base: es la única de las tres pruebas que
-    # de verdad detectaría esa anti-correlación.
+    # Validación Chi-cuadrado para distribución uniforme de bases
     conteo_bases = np.bincount(paquete.bases, minlength=2)
     chi2_bases = float(np.sum((conteo_bases - n_unif / 2) ** 2) / (n_unif / 2))
     assert chi2_bases < 10.83, f"Chi-cuadrado de bases sospechosamente alto: {chi2_bases:.3f}"
     print(f" [PASS] Chi-cuadrado uniformidad de bases: {chi2_bases:.3f} (< 10.83 a p<0.001)")
 
+    # Test de contingencia 2x2 para descartar anti-correlaciones entre bits y bases
     tabla = np.zeros((2, 2), dtype=int)
     np.add.at(tabla, (paquete.bits, paquete.bases), 1)
     esperado = (
@@ -319,15 +347,13 @@ def run_statistical_tests():
         / tabla.sum()
     )
     chi2_independencia = float(np.sum((tabla - esperado) ** 2 / esperado))
-    # También 1 grado de libertad: una tabla 2x2 tiene (2-1)*(2-1) = 1.
     assert chi2_independencia < 10.83, (
         f"Bits y bases no parecen independientes: chi²={chi2_independencia:.3f}"
     )
     print(f" [PASS] Chi-cuadrado independencia bit-base: {chi2_independencia:.3f} (< 10.83 a p<0.001)")
 
-    # Test 5: Tasa de dark counts. A 500 km / 0.2 dB/km, eta_fibra ~ 1e-10:
-    # prácticamente ningún fotón real sobrevive, así que casi todos los
-    # clicks observados deben venir de dark counts (click_rate ~ prob_dark_count).
+    # Test 5: Tasa de dark counts
+    # Saturamos el canal a 500 km, por lo que casi todo click debe ser un dark count.
     res_dark = sim.run(
         n_qubits=200_000,
         distancia_km=500.0,
@@ -339,19 +365,22 @@ def run_statistical_tests():
     assert math.isclose(res_dark.detector_click_rate, 2e-3, rel_tol=0.25)
     print(f" [PASS] Dark count rate a canal saturado: {res_dark.detector_click_rate:.5f} (objetivo ~0.00200)")
     
-    # Test 6 (regresión): Cascade debe corregir el 100% de los errores
-    # inyectados, para un barrido de QBER realista y varias semillas.
-    # Ver el docstring de esta función para el motivo.
+    # Test 6: Regresión de Error Correction (Cascade)
+    # Se inyectan fallos de forma controlada y se verifica que Cascade resuelva el 100%.
     rng_test = np.random.default_rng(2026)
     n_test = 20_000
     for qber_test in [0.01, 0.03, 0.05, 0.08]:
         alice_k = rng_test.integers(0, 2, size=n_test)
         bob_k = alice_k.copy()
+        
+        # Inyección de errores basados en QBER
         flips = rng_test.random(n_test) < qber_test
         bob_k[flips] ^= 1
+        
         capa_test = ClassicalLayer(
             EntropySource.simulation(int(rng_test.integers(0, 2**31))), sec_params
         )
+        # Ejecutamos la reconciliación
         _, _, discrepancias = capa_test.error_correction_cascade(
             alice_k, bob_k, qber_estimado=qber_test, n_pasadas=4
         )

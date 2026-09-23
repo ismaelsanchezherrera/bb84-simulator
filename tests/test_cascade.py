@@ -1,7 +1,5 @@
 """
-Tests de ClassicalLayer.error_correction_cascade: validación de entrada
-(v5.4) y test de regresión de corrección de errores (heredado de
-run_statistical_tests v5.3, Test 6).
+Tests de ClassicalLayer.error_correction_cascade: validación de entrada y test de regresión de corrección de errores
 
 Nota sobre n_pasadas=0 (ver también el docstring del método): NO produce,
 en la práctica, un "éxito falso" silencioso en el pipeline completo de

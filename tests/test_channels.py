@@ -1,6 +1,5 @@
 """
-Tests de validación (v5.4) y de física (heredados de run_statistical_tests
-v5.3) de FiberChannel, DepolarizingChannel y FreeSpaceChannel.
+Tests de validación (v5.4) y de física, de FiberChannel, DepolarizingChannel y FreeSpaceChannel.
 """
 import math
 

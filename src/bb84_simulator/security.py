@@ -167,6 +167,16 @@ class SecurityLayer:
     def __init__(self, sec_params: SecurityParameters):
         self.sec_params = sec_params
 
+    @staticmethod
+    def serfling_bound(
+        q_estimado: float,
+        n_muestra: int,
+        n_poblacion: int,
+        epsilon: float = 1e-10,
+    ) -> float:
+        """Cota superior de Serfling (1974) sobre el resto no muestreado."""
+        return cota_serfling_superior(q_estimado, n_muestra, n_poblacion, epsilon)
+
     def calculate_lhl_length(
         self,
         n_resto: int,
