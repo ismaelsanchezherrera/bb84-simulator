@@ -1,0 +1,56 @@
+Date : 2026-09-22 15:42:13
+Directory : c:\Users\ISMAEL\Downloads\simulador bb84
+Total : 23 files,  1845 codes, 339 comments, 513 blanks, all 2697 lines
+
+Languages
++----------+------------+------------+------------+------------+------------+
+| language | files      | code       | comment    | blank      | total      |
++----------+------------+------------+------------+------------+------------+
+| Python   |         20 |      1,764 |        339 |        470 |      2,573 |
+| Markdown |          2 |         56 |          0 |         36 |         92 |
+| YAML     |          1 |         25 |          0 |          7 |         32 |
++----------+------------+------------+------------+------------+------------+
+
+Directories
++---------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                      | files      | code       | comment    | blank      | total      |
++---------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                         |         23 |      1,845 |        339 |        513 |      2,697 |
+| . (Files)                                                                 |          2 |         56 |          0 |         36 |         92 |
+| .github                                                                   |          1 |         25 |          0 |          7 |         32 |
+| .github\workflows                                                         |          1 |         25 |          0 |          7 |         32 |
+| examples                                                                  |          1 |         10 |          3 |          6 |         19 |
+| src                                                                       |         12 |      1,342 |        220 |        302 |      1,864 |
+| src\bb84_simulator                                                        |         12 |      1,342 |        220 |        302 |      1,864 |
+| tests                                                                     |          7 |        412 |        116 |        162 |        690 |
++---------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++---------------------------------------------------------------------------+----------+------------+------------+------------+------------+
+| filename                                                                  | language | code       | comment    | blank      | total      |
++---------------------------------------------------------------------------+----------+------------+------------+------------+------------+
+| c:\Users\ISMAEL\Downloads\simulador bb84\.github\workflows\tests.yml      | YAML     |         25 |          0 |          7 |         32 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\CHANGELOG.md                     | Markdown |         27 |          0 |         20 |         47 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\README.md                        | Markdown |         29 |          0 |         16 |         45 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\examples\demo_basic.py           | Python   |         10 |          3 |          6 |         19 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\src\bb84_simulator\__init__.py   | Python   |         60 |          3 |          4 |         67 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\src\bb84_simulator\__main__.py   | Python   |         80 |          5 |         12 |         97 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\src\bb84_simulator\attacks.py    | Python   |         58 |         15 |         26 |         99 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\src\bb84_simulator\cascade.py    | Python   |        108 |          7 |         30 |        145 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\src\bb84_simulator\channels.py   | Python   |        223 |         26 |         40 |        289 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\src\bb84_simulator\classical.py  | Python   |        117 |         15 |         28 |        160 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\src\bb84_simulator\entropy.py    | Python   |        111 |         12 |         40 |        163 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\src\bb84_simulator\models.py     | Python   |         69 |          4 |         13 |         86 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\src\bb84_simulator\quantum.py    | Python   |         30 |          6 |         16 |         52 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\src\bb84_simulator\security.py   | Python   |        242 |         17 |         47 |        306 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\src\bb84_simulator\simulator.py  | Python   |        224 |        103 |         37 |        364 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\src\bb84_simulator\validation.py | Python   |         20 |          7 |          9 |         36 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\tests\test_cascade.py            | Python   |         64 |         25 |         23 |        112 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\tests\test_channels.py           | Python   |         87 |         26 |         36 |        149 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\tests\test_crypto_properties.py  | Python   |         33 |         12 |         18 |         63 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\tests\test_entropy.py            | Python   |         34 |          6 |         20 |         60 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\tests\test_integration.py        | Python   |         55 |          9 |         16 |         80 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\tests\test_parameters.py         | Python   |         43 |         20 |         25 |         88 |
+| c:\Users\ISMAEL\Downloads\simulador bb84\tests\test_security.py           | Python   |         96 |         18 |         24 |        138 |
+| Total                                                                     |          |      1,845 |        339 |        513 |      2,697 |
++---------------------------------------------------------------------------+----------+------------+------------+------------+------------+

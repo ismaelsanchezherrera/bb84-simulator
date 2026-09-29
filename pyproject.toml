@@ -16,4 +16,5 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pytest-cov",
+    "scipy>=1.7.0",
 ]
