@@ -96,6 +96,10 @@ def _detectar_en_bob(
     bits_bob = np.zeros(n, dtype=np.uint8)
     bits_bob[click_d1 & ~click_d0] = 1
 
+    # Métrica estricta de cuentas oscuras: disparos térmicos puramente debidos a oscuridad (sin fotón incidente)
+    clics_oscuros_reales = (dark_d0 |dark_d1) & ~llega_foton
+    n_dark_counts = int(np.sum(clics_oscuros_reales))
+
     # En caso de doble clic, el resultado es ambiguo (asignación aleatoria de bit)
     idx_dobles = np.flatnonzero(doble_click)
     if len(idx_dobles) > 0:

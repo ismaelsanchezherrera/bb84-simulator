@@ -2,7 +2,7 @@
 Simulador BB84 - Distribución de Claves Cuánticas.
 """
 
-__version__ = "5.4.1"
+__version__ = "5.5.0"
 
 from bb84_simulator.attacks import (
     CollectiveAttack,

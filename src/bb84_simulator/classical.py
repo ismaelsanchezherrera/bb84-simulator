@@ -18,21 +18,6 @@ from bb84_simulator.security import (
 )
 
 
-def _convolucion_fft(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    n_total = len(a) + len(b) - 1
-    n_fft = 1 << (n_total - 1).bit_length()
-
-    A = np.fft.rfft(a, n_fft)
-    B = np.fft.rfft(b, n_fft)
-    conv = np.fft.irfft(A * B, n_fft)[:n_total]
-
-    redondeo = float(np.max(np.abs(conv - np.round(conv))))
-    if redondeo > 1e-3:
-        raise RuntimeError(f"Redondeo FFT sospechoso: {redondeo:.2e}")
-
-    return np.round(conv).astype(np.int64)
-
-
 class ClassicalLayer:
     """Capa 2: Responsable del post-procesamiento clásico de información."""
 
@@ -104,41 +89,40 @@ class ClassicalLayer:
             n_pasadas=n_pasadas,
         )
 
+    @staticmethod
     def privacy_amplification_toeplitz(
-        self,
-        clave: np.ndarray,
-        longitud_salida: int,
-        semilla_publica: int | None = None,
+        key: np.ndarray, target_length: int, toeplitz_seed: np.ndarray
     ) -> np.ndarray:
         """
         Amplificación de privacidad mediante hash universal con matriz de Toeplitz binaria.
-
-        Si se proporciona `semilla_publica`, los bits de la matriz se derivan de esa semilla
-        para permitir que Alice y Bob usen la misma matriz (p. ej., en key_confirmation).
-        De lo contrario, en modo 'crypto', se leen directamente de os.urandom vía `entropy.raw_crypto_bits()`.
+        Multiplicación exacta sobre GF(2) mediante stride_tricks sin depender de FFT ni SciPy.
         """
-        longitud_salida = max(0, int(longitud_salida))
-        n = len(clave)
-        if longitud_salida == 0 or n == 0:
+        n = len(key)
+        if target_length <= 0 or n == 0:
             return np.array([], dtype=np.uint8)
 
-        if longitud_salida >= n:
-            return clave[:longitud_salida].astype(np.uint8)
+        if target_length > n:
+            raise ValueError(
+                f"target_length ({target_length}) no puede ser mayor que la clave ({n})"
+            )
 
-        num_bits_toeplitz = longitud_salida + n - 1
+        if len(toeplitz_seed) < n + target_length - 1:
+            raise ValueError("Semilla Toeplitz insuficiente para las dimensiones dadas.")
 
-        # Si hay semilla pública explícita (p. ej., confirmación de clave),
-        # se genera la matriz de forma determinista compartida entre las partes.
-        if semilla_publica is not None:
-            rng_compartido = EntropySource.simulation(seed=int(semilla_publica))
-            semilla_toeplitz = rng_compartido.integers(0, 2, size=num_bits_toeplitz)
-        else:
-            semilla_toeplitz = self.entropy.raw_crypto_bits(num_bits_toeplitz)
+        col = toeplitz_seed[:target_length]
+        row = toeplitz_seed[target_length - 1 :]
 
-        # Multiplicación O(N log N) vía FFT
-        conv = _convolucion_fft(semilla_toeplitz.astype(np.int64), clave.astype(np.int64))
-        y = conv[n - 1 : n - 1 + longitud_salida]
-        return (y & 1).astype(np.uint8)
+        # Construcción nativa con NumPy en GF(2)
+        vals = np.concatenate((row[-1:0:-1], col))
+        stride = vals.strides[0]
+        matrix = np.lib.stride_tricks.as_strided(
+            vals[len(row) - 1 :],
+            shape=(target_length, n),
+            strides=(stride, -stride),
+        )
+
+        final_key = (matrix @ key) % 2
+        return final_key.astype(np.uint8)
 
     @staticmethod
     def privacy_amplification(
@@ -146,15 +130,38 @@ class ClassicalLayer:
         target_length: int,
         entropy: EntropySource,
     ) -> np.ndarray:
-        """Método estático de conveniencia para amplificación de privacidad."""
-        capa_clasica = ClassicalLayer(entropy, SecurityParameters())
-        return capa_clasica.privacy_amplification_toeplitz(key, target_length)
+        """Método estático de conveniencia que extrae entropía directa e invoca PA Toeplitz."""
+        n = len(key)
+        if target_length <= 0 or n == 0:
+            return np.array([], dtype=np.uint8)
 
-    def key_confirmation(self, clave_a: np.ndarray, clave_b: np.ndarray) -> bool:
-        if len(clave_a) == 0 or len(clave_b) == 0:
+        num_bits = n + target_length - 1
+        toeplitz_seed = entropy.raw_crypto_bits(num_bits)
+        return ClassicalLayer.privacy_amplification_toeplitz(
+            key, target_length, toeplitz_seed
+        )
+
+    def key_confirmation(
+        self,
+        clave_a: np.ndarray,
+        clave_b: np.ndarray,
+        semilla_publica: int | None = None,
+    ) -> bool:
+        """Verifica si las claves reconciliadas coinciden mediante confirmación por etiquetas Toeplitz."""
+        if len(clave_a) == 0 or len(clave_b) == 0 or len(clave_a) != len(clave_b):
             return False
-        seed = self.entropy.random_seed_int()
+
         tag_length = self.sec_params.tag_length_efectivo
-        tag_a = self.privacy_amplification_toeplitz(clave_a, tag_length, seed)
-        tag_b = self.privacy_amplification_toeplitz(clave_b, tag_length, seed)
+        num_bits = len(clave_a) + tag_length - 1
+
+        if semilla_publica is None:
+            semilla_publica = self.entropy.random_seed_int()
+
+        # Generamos la semilla determinista compartida como arreglo de bits
+        rng_compartido = EntropySource.simulation(seed=int(semilla_publica))
+        toeplitz_seed = rng_compartido.integers(0, 2, size=num_bits).astype(np.uint8)
+
+        tag_a = self.privacy_amplification_toeplitz(clave_a, tag_length, toeplitz_seed)
+        tag_b = self.privacy_amplification_toeplitz(clave_b, tag_length, toeplitz_seed)
+
         return bool(np.array_equal(tag_a, tag_b))

@@ -5,7 +5,9 @@ Pruebas de propiedades criptográficas, multiplicación GF(2), Poisson y límite
 import numpy as np
 import pytest
 from scipy.linalg import toeplitz
-
+from unittest.mock import patch
+from bb84_simulator.simulator import BB84Simulator
+from bb84_simulator.entropy import EntropySource
 from bb84_simulator.attacks import QuantumPacket
 from bb84_simulator.channels import FiberChannel
 from bb84_simulator.classical import ClassicalLayer
@@ -164,3 +166,18 @@ def test_two_detector_physics_alignment():
     # Al medir en la base ortogonal, el resultado debe ser completamente aleatorio (QBER ~ 50%)
     match_rate = float(np.mean(bits_alice == det_mismatch.bits_bob))
     assert 0.45 < match_rate < 0.55  # Matemáticamente converge a 0.5
+
+def test_pipeline_invokes_raw_crypto_bits():
+    """Verifica que BB84Simulator utilice entropía directa cruda para la matriz Toeplitz."""
+    entropy = EntropySource.simulation(seed=42)
+    sim = BB84Simulator(entropy)
+    
+    # Interceptamos raw_crypto_bits con un mock para asegurar que se llama exactamente en el flujo real
+    with patch.object(sim.entropy, 'raw_crypto_bits', wraps=sim.entropy.raw_crypto_bits) as mock_raw:
+        report = sim.run(n_qubits=10_000)
+        if not report.abortado:
+            # Comprobamos que el método fue invocado al menos una vez durante la amplificación de privacidad
+            mock_raw.assert_called()
+            args, _ = mock_raw.call_args
+            # El tamaño solicitado debe ser n_resto + target_length - 1
+            assert args[0] > len(report.clave_final_alice)

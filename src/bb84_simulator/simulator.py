@@ -241,21 +241,24 @@ class BB84Simulator:
             )
 
         # Amplificación de Privacidad (Privacy Amplification - LHL)
-        # 1. Calculamos la longitud de clave segura considerando la información filtrada a Eve (leak_ec y cota Serfling)
+        # 1. Calculamos la longitud de clave segura mediante LHL
         target_len = self.security_layer.calculate_lhl_length(
             n_resto=len(alice_resto),
             e_ph=pe_data["phase_error_bound"],
             leak_ec=leak_ec,
             tag_length=self.sec_params.tag_length_efectivo,
+            epsilon_pa=self.sec_params.epsilon_pa,
         )
 
-        # 2. Comprimimos la clave usando una matriz de Toeplitz compartida (generada vía semilla pública)
-        seed_pa = self.entropy.random_seed_int()
+        # 2. Comprimimos la clave usando una matriz de Toeplitz compartida (bits criptográficos directos)
+        num_bits_toeplitz = len(alice_resto) + target_len - 1
+        toeplitz_seed = self.entropy.raw_crypto_bits(num_bits_toeplitz)
+
         clave_alice_pa = self.classical_layer.privacy_amplification_toeplitz(
-            alice_resto, target_len, seed_pa
+            alice_resto, target_len, toeplitz_seed
         )
         clave_bob_pa = self.classical_layer.privacy_amplification_toeplitz(
-            bob_reconciliado, target_len, seed_pa
+            bob_reconciliado, target_len, toeplitz_seed
         )
 
         # ==========================================

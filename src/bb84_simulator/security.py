@@ -7,7 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from numbers import Real
-from typing import Any
+from typing import Any, Optional
 import numpy as np
 
 from bb84_simulator.models import DetectionResult, SecurityReport
@@ -18,47 +18,82 @@ from bb84_simulator.validation import (
 UMBRAL_QBER_SEGURIDAD = 0.11
 
 
+def entropia_binaria(p: float) -> float:
+    """Calcula la entropía binaria de Shannon H2(p) = -p log2(p) - (1-p) log2(1-p)."""
+    if isinstance(p, bool) or not isinstance(p, (int, float)) or not math.isfinite(p):
+        raise ValueError("p debe ser un número real finito.")
+    if not (0.0 <= p <= 0.5):
+        raise ValueError(f"p debe estar en el rango [0.0, 0.5]. Obtenido: {p}")
+    if p == 0.0:
+        return 0.0
+    if p == 0.5:
+        return 1.0
+    return float(-p * np.log2(p) - (1.0 - p) * np.log2(1.0 - p))
+
+
+def calcular_tag_length(epsilon_auth: float) -> int:
+    """Calcula la longitud en bits de la etiqueta de confirmación para garantizar epsilon_auth."""
+    _validar_epsilon("epsilon_auth", epsilon_auth)
+    return int(np.ceil(-np.log2(epsilon_auth)))
+
+
+@dataclass(frozen=True)
+class BitErrorEstimate:
+    """Estimación del error de bit obtenida en la etapa de verificación."""
+
+    value: float
+    n_muestra: int = 0
+    n_poblacion: int = 0
+    epsilon: float = 1e-10
+
+
+@dataclass(frozen=True)
+class PhaseErrorEstimate:
+    """Cota superior del error de fase tras aplicar la desigualdad de Serfling."""
+
+    value: float
+
+
 @dataclass(frozen=True)
 class SecurityParameters:
-    """Configuración del marco de seguridad composable."""
+    """
+    Configuración del marco de seguridad composable.
+    
+    Proporciona parámetros de cota de error para estimación de parámetros (epsilon_pe),
+    amplificación de privacidad (epsilon_pa) y corrección/confirmación (epsilon_cor).
+    Mantiene compatibilidad con alias históricos de la suite de pruebas.
+    """
 
-    epsilon_cor: float = 1e-10   # Cota de corrección (Cascade/EC)
-    epsilon_sec: float = 1e-10   # Cota de secreto (LHL / Privacy Amplification)
-    epsilon_auth: float = 1e-12  # Cota de fallo de autenticación/confirmación
-    fec_efficiency: float = 1.10
-    explicit_tag_length: int | None = None
+    epsilon_pe: float = 1e-10  # Cota de estimación de parámetros (Serfling)
+    epsilon_pa: float = 1e-10  # Cota de secreto/seguridad (Toeplitz/LHL)
+    epsilon_cor: float = 1e-10 # Cota de corrección/confirmación
 
-    # Campos para compatibilidad con la suite existente
-    epsilon_pe: float = 1e-10
-    epsilon_pa: float = 1e-10
+    # Campos de compatibilidad con la suite existente para instanciación con kwargs
     epsilon_ec: float = 1e-10
-    tag_length: int | None = None
+    epsilon_auth: float = 1e-12
+    epsilon_ec: float = 1e-10
+    fec_efficiency: float = 1.10
+    explicit_tag_length: Optional[int] = None
+    tag_length: Optional[int] = None
 
     def __post_init__(self) -> None:
-        # Sincronización de alias de compatibilidad
+        # Sincronización de alias de compatibilidad con soporte retrocompatible
         if self.tag_length is not None and self.explicit_tag_length is None:
             object.__setattr__(self, "explicit_tag_length", self.tag_length)
         elif self.explicit_tag_length is not None and self.tag_length is None:
             object.__setattr__(self, "tag_length", self.explicit_tag_length)
 
-        if self.epsilon_pe != 1e-10 and self.epsilon_sec == 1e-10:
-            object.__setattr__(self, "epsilon_sec", self.epsilon_pe)
-        elif self.epsilon_sec != 1e-10 and self.epsilon_pe == 1e-10:
-            object.__setattr__(self, "epsilon_pe", self.epsilon_sec)
-
-        if self.epsilon_pa != 1e-10 and self.epsilon_sec == 1e-10:
-            object.__setattr__(self, "epsilon_sec", self.epsilon_pa)
-        elif self.epsilon_sec != 1e-10 and self.epsilon_pa == 1e-10:
-            object.__setattr__(self, "epsilon_pa", self.epsilon_sec)
-
+        # Si el usuario configura epsilon_ec pero no epsilon_cor, los sincronizamos
         if self.epsilon_ec != 1e-10 and self.epsilon_cor == 1e-10:
             object.__setattr__(self, "epsilon_cor", self.epsilon_ec)
         elif self.epsilon_cor != 1e-10 and self.epsilon_ec == 1e-10:
             object.__setattr__(self, "epsilon_ec", self.epsilon_cor)
-
-        # Validación de cotas epsilon
+            
+        # Validaciones de rigurosidad sobre las cotas epsilon exclusivas
+        _validar_epsilon("epsilon_pe", self.epsilon_pe)
+        _validar_epsilon("epsilon_pa", self.epsilon_pa)
         _validar_epsilon("epsilon_cor", self.epsilon_cor)
-        _validar_epsilon("epsilon_sec", self.epsilon_sec)
+        _validar_epsilon("epsilon_ec", self.epsilon_ec)
         _validar_epsilon("epsilon_auth", self.epsilon_auth)
 
         if (
@@ -69,7 +104,6 @@ class SecurityParameters:
         ):
             raise ValueError("fec_efficiency debe ser un real finito >= 1.")
 
-        # Validación de coherencia de tag_length explícito frente a epsilon_auth
         tag = self.explicit_tag_length
         if tag is not None:
             if isinstance(tag, bool) or not isinstance(tag, int) or tag <= 0:
@@ -84,61 +118,15 @@ class SecurityParameters:
 
     @property
     def tag_length_efectivo(self) -> int:
-        """Calcula el tamaño necesario de la etiqueta basado en epsilon_auth."""
+        """Tamaño en bits necesario para la etiqueta de confirmación."""
         if self.explicit_tag_length is not None:
             return self.explicit_tag_length
         return calcular_tag_length(self.epsilon_auth)
 
     @property
     def epsilon_total(self) -> float:
-        """Cota de seguridad composable global (Cota Unión)."""
-        return self.epsilon_cor + self.epsilon_sec + self.epsilon_auth
-
-@dataclass(frozen=True)
-class BitErrorEstimate:
-    """Estimación del error de BIT (QBER), Serfling (1974)."""
-
-    value: float
-    n_muestra: int = 0
-    n_poblacion: int = 0
-    epsilon: float = 0.0
-
-
-@dataclass(frozen=True)
-class PhaseErrorEstimate:
-    """Cota superior del error de FASE, e_ph."""
-
-    value: float
-    supuesto: str = (
-        "e_ph := cota_serfling(qber_bit); canal simétrico, no derivado de forma independiente"
-    )
-
-
-def entropia_binaria(p: float | np.ndarray) -> float | np.ndarray:
-    """Calcula la entropía binaria H2(p). Requiere p en el intervalo [0.0, 0.5]."""
-    p_arr = np.asarray(p, dtype=float)
-    if np.any(~np.isfinite(p_arr)) or np.any((p_arr < 0.0) | (p_arr > 0.5)):
-        raise ValueError(
-            f"El parámetro de error p debe estar en el intervalo [0.0, 0.5] (obtenido: {p})"
-        )
-
-    out = np.zeros_like(p_arr)
-    mask = (p_arr > 0.0) & (p_arr <= 0.5)
-    out[mask] = (
-        -p_arr[mask] * np.log2(p_arr[mask])
-        - (1.0 - p_arr[mask]) * np.log2(1.0 - p_arr[mask])
-    )
-    if np.ndim(p) == 0:
-        return float(out)
-    return out
-
-def calcular_tag_length(epsilon_auth: float) -> int:
-    """Calcula el tamaño necesario de tag evitando OverflowError en 1/epsilon_auth."""
-    if not (0.0 < epsilon_auth < 1.0) or not np.isfinite(epsilon_auth):
-        raise ValueError(
-            f"epsilon_auth debe estar en el intervalo (0.0, 1.0) (obtenido: {epsilon_auth})"
-        )
-    return int(np.ceil(-np.log2(epsilon_auth)))
+        """Cota de seguridad composable global (Cota Unión interna)."""
+        return self.epsilon_pe + self.epsilon_pa + self.epsilon_cor
 
 
 def cota_serfling_superior(
@@ -177,23 +165,33 @@ class SecurityLayer:
         """Cota superior de Serfling (1974) sobre el resto no muestreado."""
         return cota_serfling_superior(q_estimado, n_muestra, n_poblacion, epsilon)
 
+    @staticmethod
     def calculate_lhl_length(
-        self,
         n_resto: int,
-        e_ph: PhaseErrorEstimate,
+        e_ph: float | PhaseErrorEstimate,
         leak_ec: int,
-        tag_length: int = 0,
+        tag_length: int,
+        epsilon_pa: float = 1e-10,
     ) -> int:
-        """Leftover Hash Lemma (LHL) para Finite-Key."""
-        if n_resto <= 0 or e_ph.value >= UMBRAL_QBER_SEGURIDAD:
+        """Calcula la longitud de clave segura mediante la Leftover Hash Lemma (LHL)."""
+        if n_resto < 0:
+            raise ValueError("n_resto no puede ser negativo")
+        if not (0 <= leak_ec <= n_resto):
+            raise ValueError(f"leak_ec ({leak_ec}) fuera del rango [0, {n_resto}]")
+        if tag_length < 0:
+            raise ValueError("tag_length no puede ser negativo")
+
+        e_ph_val = float(e_ph.value) if hasattr(e_ph, "value") else float(e_ph)
+        
+        # Cierre de seguridad: Si la cota de error de fase alcanza o supera el umbral
+        # tolerable (0.11), no se pueden extraer bits seguros mediante LHL.
+        if e_ph_val >= UMBRAL_QBER_SEGURIDAD:
             return 0
 
-        h2_eph = float(entropia_binaria(e_ph.value))
-        term_entropia = n_resto * (1.0 - h2_eph)
-        term_eps = 2.0 * math.log2(1.0 / self.sec_params.epsilon_pa)
-
-        l_val = math.floor(term_entropia - leak_ec - tag_length - term_eps)
-        return max(0, l_val)
+        h2 = entropia_binaria(e_ph_val)
+        delta_pa = 2.0 * np.log2(1.0 / epsilon_pa)
+        longitud_raw = (n_resto * (1.0 - h2)) - leak_ec - delta_pa - tag_length
+        return max(0, int(np.floor(longitud_raw)))
 
     def evaluate_and_build(
         self,
@@ -234,10 +232,10 @@ class SecurityLayer:
                 n_verificacion=n_verif_abort,
                 bit_error=bit_err_abort,
                 phase_error_bound=phase_bound_abort,
-                leak_ec_real=0,
-                leak_ec_teorico=0.0,
+                leak_ec_real=bits_revelados_ec,  # <-- Corrección: Registrar la fuga real consumida
+                leak_ec_teorico=float(bits_revelados_ec),
                 discrepancias_tras_cascade=discrepancias,
-                confirmacion_clave_ok=False,
+                confirmacion_clave_ok=confirmacion_clave_ok,
                 abortado=True,
                 razon=abort_reason or "Abortado.",
                 longitud_clave_final=0,
@@ -312,5 +310,3 @@ class SecurityLayer:
             clave_final_alice=clave_alice_pa if not abort else np.array([], dtype=np.uint8),
             clave_final_bob=clave_bob_pa if not abort else np.array([], dtype=np.uint8),
         )
-
-    
