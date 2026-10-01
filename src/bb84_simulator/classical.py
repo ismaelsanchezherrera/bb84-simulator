@@ -10,9 +10,10 @@ import numpy as np
 from bb84_simulator.cascade import error_correction_cascade
 from bb84_simulator.entropy import EntropySource
 from bb84_simulator.models import DetectionResult
+from bb84_simulator.security import SymmetricChannelPhaseErrorBound
 from bb84_simulator.security import (
     BitErrorEstimate,
-    PhaseErrorEstimate,
+    SymmetricChannelPhaseErrorBound, 
     SecurityParameters,
     cota_serfling_superior,
 )
@@ -68,7 +69,7 @@ class ClassicalLayer:
                 n_poblacion=n,
                 epsilon=self.sec_params.epsilon_pe,
             ),
-            "phase_error_bound": PhaseErrorEstimate(qber_superior),
+            "phase_error_bound": SymmetricChannelPhaseErrorBound(qber_superior),
             "n_verificacion": n_verif,
             "clave_alice_resto": clave_alice[mascara_resto],
             "clave_bob_resto": clave_bob[mascara_resto],
@@ -145,21 +146,17 @@ class ClassicalLayer:
         self,
         clave_a: np.ndarray,
         clave_b: np.ndarray,
-        semilla_publica: int | None = None,
+        toeplitz_seed: np.ndarray | None = None,
     ) -> bool:
-        """Verifica si las claves reconciliadas coinciden mediante confirmación por etiquetas Toeplitz."""
+        """Verifica la coincidencia de claves mediante un tag de Toeplitz ITS."""
         if len(clave_a) == 0 or len(clave_b) == 0 or len(clave_a) != len(clave_b):
             return False
 
         tag_length = self.sec_params.tag_length_efectivo
         num_bits = len(clave_a) + tag_length - 1
 
-        if semilla_publica is None:
-            semilla_publica = self.entropy.random_seed_int()
-
-        # Generamos la semilla determinista compartida como arreglo de bits
-        rng_compartido = EntropySource.simulation(seed=int(semilla_publica))
-        toeplitz_seed = rng_compartido.integers(0, 2, size=num_bits).astype(np.uint8)
+        if toeplitz_seed is None:
+            toeplitz_seed = self.entropy.raw_crypto_bits(num_bits)
 
         tag_a = self.privacy_amplification_toeplitz(clave_a, tag_length, toeplitz_seed)
         tag_b = self.privacy_amplification_toeplitz(clave_b, tag_length, toeplitz_seed)

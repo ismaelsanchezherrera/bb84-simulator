@@ -11,7 +11,6 @@ from bb84_simulator.entropy import EntropySource
 from bb84_simulator.attacks import QuantumPacket
 from bb84_simulator.channels import FiberChannel
 from bb84_simulator.classical import ClassicalLayer
-from bb84_simulator.entropy import EntropySource
 from bb84_simulator.quantum import Bob
 from bb84_simulator.security import SecurityLayer, SecurityParameters, entropia_binaria
 
@@ -59,15 +58,14 @@ def test_entropia_binaria_domain():
 
 
 def test_tag_length_validation():
-    """Verifica que no se acepten tags explícitos incoherentes con epsilon_auth."""
-    # Tag de 1 bit da cota 0.5, incompatible con epsilon_auth = 1e-12
+    """Verifica que no se acepten tags explícitos incoherentes con epsilon_cor."""
+    # Tag de 1 bit da cota 0.5, incompatible con epsilon_cor = 1e-12
     with pytest.raises(ValueError):
-        SecurityParameters(epsilon_auth=1e-12, explicit_tag_length=1)
+        SecurityParameters(epsilon_cor=1e-12, tag_length=1)
 
-    # Tag de 40 bits da cota 2^-40 ~ 9e-13, compatible con epsilon_auth = 1e-12
-    params = SecurityParameters(epsilon_auth=1e-12, explicit_tag_length=40)
+    # Tag de 40 bits da cota 2^-40 ~ 9.09e-13, compatible con epsilon_cor = 1e-12
+    params = SecurityParameters(epsilon_cor=1e-12, tag_length=40)
     assert params.tag_length_efectivo == 40
-
 
 # --- 1. TEST DE TOEPLITZ CONTRA MULTIPLICACIÓN MATRICIAL DIRECTA EN GF(2) ---
 def test_toeplitz_gf2_exact_matrix_multiplication():

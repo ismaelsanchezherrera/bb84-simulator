@@ -60,11 +60,16 @@ class SecurityReport:
     clave_final_bob: np.ndarray
 
     def __post_init__(self) -> None:
-        if isinstance(self.clave_final_alice, np.ndarray):
-            self.clave_final_alice.flags.writeable = False
-        if isinstance(self.clave_final_bob, np.ndarray):
-            self.clave_final_bob.flags.writeable = False
-
+        if isinstance(self.clave_final_alice, np.ndarray) and self.clave_final_alice.size > 0:
+            copia_alice = np.array(self.clave_final_alice, copy=True)
+            copia_alice.flags.writeable = False
+            object.__setattr__(self, "clave_final_alice", copia_alice)
+            
+        if isinstance(self.clave_final_bob, np.ndarray) and self.clave_final_bob.size > 0:
+            copia_bob = np.array(self.clave_final_bob, copy=True)
+            copia_bob.flags.writeable = False
+            object.__setattr__(self, "clave_final_bob", copia_bob)
+            
     @property
     def claves_coinciden(self) -> bool:
         """Verifica que las claves coincidan, no estén vacías y el reporte no esté abortado."""

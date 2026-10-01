@@ -13,6 +13,15 @@ Este simulador implementa el protocolo BB84 bajo las siguientes hipótesis de mo
 3. **Seguridad Teórico-Informacional (ITS):** En modo `EntropySource.crypto()`, la matriz de Toeplitz para la amplificación de privacidad se genera mediante entropía criptográfica directa (`os.urandom`), garantizando la cota de secreto de la Leftover Hash Lemma ($2^{-\ell}$) sin depender de un PRNG de estado acotado.
 4. **Modelo Físico de Detectores Independientes:** La etapa de medición en Bob simula la llegada de fotones y cuentas oscuras sobre dos detectores físicos independientes ($D_0$ y $D_1$), contemplando la resolución estocástica ante eventos de doble clic.
 
+## Security Scope (Límites del Modelo)
+
+Este simulador **no** implementa un modelo de seguridad general contra adversarios coherentes. El estimador finite-key es _ilustrativo_ y depende de las siguientes hipótesis físicas fuertes:
+
+- **Implementado:** Preparación ideal de qubits individuales.
+- **Asumido:** Canal de ruido simétrico (la cota de Serfling sobre $e_z$ acota directamente $e_x$).
+- **Asumido:** Canal clásico pre-autenticado externamente (el simulador modela la confirmación de corrección $\epsilon_{cor}$, pero asume la invulnerabilidad frente a ataques MITM).
+- **No modelado:** Pulsos multifotónicos (Poisson), ataques PNS (Photon-Number-Splitting), estados señuelo (Decoy-states), ni vulnerabilidades de canales laterales en detectores.
+
 ## Estructura del Proyecto
 
 - `src/bb84_simulator/`: Código fuente e implementación de la simulación.
@@ -27,7 +36,7 @@ Este simulador implementa el protocolo BB84 bajo las siguientes hipótesis de mo
 
 ```bash
 # 1. Clonar el repositorio
-git clone https://github.com/ismaelsanchezherreracubero/bb84-simulator.git (https://github.com/ismaelsanchezherreracubero/bb84-simulator.git)
+git clone https://github.com/ismaelsanchezherrera/bb84-simulator.git
 cd bb84-simulator
 
 # 2. Crear y activar el entorno virtual

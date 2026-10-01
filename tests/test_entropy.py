@@ -57,3 +57,24 @@ def test_integers_bits_camino_rapido_produce_solo_0_y_1():
     entropy = EntropySource.crypto()
     bits = entropy.integers(0, 2, size=10_000)
     assert set(np.unique(bits).tolist()) <= {0, 1}
+def test_random_crypto_none_devuelve_escalar(entropy_crypto):
+    """Verifica que random(size=None) devuelva un flotante escalar válido en modo crypto."""
+    resultado = entropy_crypto.random(size=None)
+    assert isinstance(resultado, float)
+    assert 0.0 <= resultado < 1.0
+
+
+def test_random_eve_no_falla_en_modo_crypto():
+    """Verifica que RandomEve (que llama a random(None)) funcione correctamente en modo ITS."""
+    from bb84_simulator import (
+        BB84Simulator,
+        EntropySource,
+        PassiveEve,
+        RandomEve,
+        SecurityParameters,
+    )
+
+    sim = BB84Simulator(EntropySource.crypto(), SecurityParameters())
+    # Debería ejecutar sin lanzar TypeError/ValueError
+    resultado = sim.run(n_qubits=1000, eve=RandomEve(PassiveEve(), 0.5))
+    assert resultado.n_qubits == 1000

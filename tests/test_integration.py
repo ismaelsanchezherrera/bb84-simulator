@@ -39,7 +39,7 @@ def test_run_con_espia_intercept_resend_completo_aborta():
         eve=InterceptResendEve(),
     )
     assert resultado.abortado
-    assert "QBER" in resultado.razon
+    assert "LHL" in resultado.razon
 
 
 def test_run_con_channel_y_parametro_de_fibra_no_default_lanza_valueerror():

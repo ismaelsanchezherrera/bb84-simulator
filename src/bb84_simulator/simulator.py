@@ -25,9 +25,10 @@ from bb84_simulator.entropy import EntropySource
 from bb84_simulator.models import SecurityReport
 from bb84_simulator.quantum import Alice, Bob, QuantumLayer
 from bb84_simulator.security import (
+    BitErrorEstimate,
     SecurityLayer,
     SecurityParameters,
-    UMBRAL_QBER_SEGURIDAD,
+    SymmetricChannelPhaseErrorBound,
 )
 
 # ============================================================================
@@ -193,18 +194,6 @@ class BB84Simulator:
             clave_alice, clave_bob, fraccion_verificacion
         )
 
-        # Salida temprana: Si la cota de error supera el umbral, asumimos presencia de Eve
-        # Esto evita consumir recursos computacionales en Cascade y Toeplitz innecesariamente.
-        if pe_data["phase_error_bound"].value >= UMBRAL_QBER_SEGURIDAD:
-            return self.security_layer.evaluate_and_build(
-                detection, n_tamizada, pe_data, 0, 0, False,
-                np.array([], dtype=np.uint8), np.array([], dtype=np.uint8), distancia_km_reporte,
-                abort_reason=(
-                    f"QBER Cota ({pe_data['phase_error_bound'].value:.4f}) "
-                    f"supera umbral ({UMBRAL_QBER_SEGURIDAD}) -> posible espía."
-                ),
-            )
-
         # Claves restantes tras sacrificar los bits para la estimación
         alice_resto = pe_data["clave_alice_resto"]
         bob_resto = pe_data["clave_bob_resto"]
@@ -222,7 +211,9 @@ class BB84Simulator:
 
         # Confirmación de Claves (Key Confirmation)
         # Se verifica mediante un hash si ambas claves son idénticas tras Cascade
-        confirmacion_clave_ok = self.classical_layer.key_confirmation(alice_resto, bob_reconciliado)
+        confirmacion_clave_ok = self.classical_layer.key_confirmation(
+            alice_resto, bob_reconciliado
+        )
 
         # SALIDA TEMPRANA: Si las claves no coinciden tras Cascade, abortamos
         # evitando el cálculo innecesario de la matriz de Toeplitz por FFT.
@@ -247,8 +238,21 @@ class BB84Simulator:
             e_ph=pe_data["phase_error_bound"],
             leak_ec=leak_ec,
             tag_length=self.sec_params.tag_length_efectivo,
-            epsilon_pa=self.sec_params.epsilon_pa,
         )
+
+        if target_len <= 0:
+            return self.security_layer.evaluate_and_build(
+                detection,
+                n_tamizada,
+                pe_data,
+                leak_ec,
+                discrepancias,
+                confirmacion_clave_ok,
+                np.array([], dtype=np.uint8),
+                np.array([], dtype=np.uint8),
+                distancia_km_reporte,
+                abort_reason="LHL arroja longitud nula: la información de Eve supera la min-entropía extraíble.",
+            )
 
         # 2. Comprimimos la clave usando una matriz de Toeplitz compartida (bits criptográficos directos)
         num_bits_toeplitz = len(alice_resto) + target_len - 1

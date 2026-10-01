@@ -24,9 +24,8 @@ from bb84_simulator.entropy import EntropySource
 from bb84_simulator.models import DetectionResult, SecurityReport
 from bb84_simulator.quantum import Alice, Bob, QuantumLayer
 from bb84_simulator.security import (
-    UMBRAL_QBER_SEGURIDAD,
     BitErrorEstimate,
-    PhaseErrorEstimate,
+    SymmetricChannelPhaseErrorBound,
     SecurityLayer,
     SecurityParameters,
     calcular_tag_length,
@@ -58,8 +57,7 @@ __all__ = [
     "error_correction_cascade",
     "SecurityLayer",
     "BitErrorEstimate",
-    "PhaseErrorEstimate",
-    "UMBRAL_QBER_SEGURIDAD",
+    "SymmetricChannelPhaseErrorBound",
     "cota_serfling_superior",
     "entropia_binaria",
     "run_statistical_tests",

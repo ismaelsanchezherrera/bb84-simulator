@@ -67,21 +67,18 @@ class EntropySource:
 
         return values.reshape(size) if isinstance(size, tuple) else values.astype(np.int64)
 
-    def random(self, size: int | tuple[int, ...]) -> np.ndarray:
-        """
-        Genera números flotantes en [0.0, 1.0).
-        En modo 'crypto', utiliza 53 bits efectivos (IEEE 754 float64) extraídos de os.urandom,
-        evitando la cuantización de baja resolución de los generadores de 32 bits.
-        """
+    def random(self, size: int | tuple[int, ...] | None = None) -> float | np.ndarray:
         if self.mode == "crypto":
-            total_elements = int(np.prod(size)) if isinstance(size, tuple) else size
-            raw_bytes = os.urandom(total_elements * 8)
+            total = int(np.prod(size)) if isinstance(size, tuple) else (1 if size is None else size)
+            raw_bytes = os.urandom(total * 8)
             ints = np.frombuffer(raw_bytes, dtype=np.uint64)
-            # Desplazamos 11 bits para retener 53 bits de precisión y multiplicamos por 2^-53
             floats = (ints >> 11) * (2.0**-53)
+            if size is None:
+                return float(floats[0])
             return floats.reshape(size) if isinstance(size, tuple) else floats
         else:
             return self._rng.random(size=size)
+    
     def permutation(self, n: int) -> np.ndarray:
         if self.mode == "simulation":
             return self._rng.permutation(n)

@@ -1,19 +1,17 @@
 """
 Tests de SecurityLayer / SecurityReport y de las propiedades estadísticas
-de la capa cuántica. Migrados de run_statistical_tests (v5.3) y ampliados
-en v5.4 con uniformidad de bases e independencia bit-base.
+de la capa cuántica.
 """
 import numpy as np
 
 from bb84_simulator import (
-    UMBRAL_QBER_SEGURIDAD,
     Alice,
     BB84Simulator,
     BitErrorEstimate,
     DetectionResult,
     EntropySource,
     InterceptResendEve,
-    PhaseErrorEstimate,
+    SymmetricChannelPhaseErrorBound,
     SecurityLayer,
     SecurityParameters,
 )
@@ -53,14 +51,11 @@ def test_security_report_no_tiene_campo_expected_qber():
 
 
 def test_evaluate_and_build_aborta_si_lhl_no_deja_bits():
-    # v5.3: antes de esta corrección, longitud_clave_final=0 se reportaba
-    # como "Transmisión Segura exitosa"; v5.4 hereda el comportamiento
-    # corregido y lo cubre con un test directo sobre SecurityLayer.
     layer = SecurityLayer(SecurityParameters())
     detection = _deteccion_minima(1000)
     pe_data = {
         "bit_error": BitErrorEstimate(0.05, n_muestra=100, n_poblacion=1000, epsilon=1e-10),
-        "phase_error_bound": PhaseErrorEstimate(0.08),  # por debajo de UMBRAL_QBER_SEGURIDAD
+        "phase_error_bound": SymmetricChannelPhaseErrorBound(0.08),
         "n_verificacion": 100,
         "clave_alice_resto": np.zeros(900, dtype=int),
         "clave_bob_resto": np.zeros(900, dtype=int),
@@ -81,11 +76,16 @@ def test_evaluate_and_build_aborta_si_lhl_no_deja_bits():
     assert reporte.longitud_clave_final == 0
 
 
-def test_calculate_lhl_length_es_cero_en_umbral_de_qber():
+def test_calculate_lhl_length_es_cero_con_e_ph_limite_o_target_invalido():
     layer = SecurityLayer(SecurityParameters())
-    e_ph = PhaseErrorEstimate(UMBRAL_QBER_SEGURIDAD)
-    assert layer.calculate_lhl_length(n_resto=10_000, e_ph=e_ph, leak_ec=100, tag_length=40) == 0
+    
+    # 1. Caso de e_ph = 0.5 (límite físico)
+    e_ph_limite = SymmetricChannelPhaseErrorBound(0.5)
+    assert layer.calculate_lhl_length(n_resto=10_000, e_ph=e_ph_limite, leak_ec=100, tag_length=40) == 0
 
+    # 2. Caso de e_ph alto con n_resto pequeño donde la cota LHL resulta en <= 0 bits
+    e_ph_alto = SymmetricChannelPhaseErrorBound(0.25)
+    assert layer.calculate_lhl_length(n_resto=1_000, e_ph=e_ph_alto, leak_ec=100, tag_length=40) == 0
 
 # --------------------------------------------------------------------
 # Estadística de la capa cuántica (migrado de run_statistical_tests)
@@ -111,10 +111,6 @@ def test_intercept_resend_produce_qber_de_un_cuarto():
 
 
 def test_uniformidad_e_independencia_bit_base_de_alice():
-    # v5.4: además de las medias/chi-cuadrado marginales de bits y bases
-    # por separado, se comprueba independencia conjunta sobre la tabla
-    # de contingencia 2x2 -- lo único que detectaría una fuente con bit
-    # y base anti-correlacionados pero ambas marginales en ~0.5.
     alice = Alice(EntropySource.simulation(seed=123))
     n = 200_000
     paquete = alice.prepare(n)
